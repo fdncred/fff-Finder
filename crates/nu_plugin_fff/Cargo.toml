@@ -1,0 +1,13 @@
+[package]
+name = "nu_plugin_fff"
+description = "Nushell plugin exposing fff-search file finding as structured data"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+fff-finder-core.workspace = true
+nu-plugin = "0.116.1"
+nu-protocol = "0.116.1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+serde_json.workspace = true

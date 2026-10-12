@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2B3445"/>
+      <stop offset="1" stop-color="#131820"/>
+    </linearGradient>
+    <linearGradient id="back" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3E9FE6"/>
+      <stop offset="1" stop-color="#2C82CC"/>
+    </linearGradient>
+    <linearGradient id="front" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7DCBFA"/>
+      <stop offset="1" stop-color="#4AABEE"/>
+    </linearGradient>
+    <linearGradient id="lens" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity=".55"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity=".12"/>
+    </linearGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+  <rect x="101" y="101" width="822" height="822" rx="184" fill="none" stroke="#FFFFFF" stroke-opacity=".10" stroke-width="2"/>
+  <path d="M212 352a44 44 0 0 1 44-44h152c12 0 23 5 31 13l29 29c8 8 19 13 31 13h269a44 44 0 0 1 44 44v299a44 44 0 0 1-44 44H256a44 44 0 0 1-44-44z" fill="url(#back)"/>
+  <rect x="212" y="410" width="600" height="340" rx="44" fill="url(#front)"/>
+  <rect x="222" y="410" width="580" height="12" rx="6" fill="#B5E2FD"/>
+  <circle cx="606" cy="566" r="118" fill="url(#lens)" stroke="#FFFFFF" stroke-width="34"/>
+  <path d="M690 652l96 96" stroke="#FFFFFF" stroke-width="54" stroke-linecap="round"/>
+  <path d="M540 520c18-26 45-40 74-42" fill="none" stroke="#FFFFFF" stroke-opacity=".8" stroke-width="16" stroke-linecap="round"/>
+</svg>

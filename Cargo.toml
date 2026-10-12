@@ -1,0 +1,66 @@
+[workspace]
+members = [".", "crates/fff-finder-core", "crates/nu_plugin_fff"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+authors = ["Darren Schroeder"]
+
+[workspace.dependencies]
+fff-finder-core = { path = "crates/fff-finder-core" }
+fff-search = "0.11.0"
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "6"
+log = "0.4"
+
+[package]
+name = "fffFinder"
+description = "A fast, cross-platform Finder-style file search app built on fff-search and GPUI Kit"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[lib]
+name = "fff_finder_app"
+path = "src/lib.rs"
+
+[[bin]]
+name = "fffFinder"
+path = "src/main.rs"
+
+[dependencies]
+fff-finder-core.workspace = true
+gpui-kit = "0.7.3"
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+dirs.workspace = true
+log.workspace = true
+trash = "5"
+
+[dev-dependencies]
+gpui-kit = { version = "0.7.3", features = ["test-support"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[profile.dev]
+debug = "limited"
+
+[profile.release]
+lto = "thin"
+codegen-units = 16
+
+[profile.dev.package]
+gpui-pre = { opt-level = 3 }
+gpui-component = { opt-level = 3 }
+gpui-base = { opt-level = 3 }
+gpui-kit = { opt-level = 3 }
+gpui-pre-platform = { opt-level = 3 }
+fff-search = { opt-level = 3 }
+rustybuzz = { opt-level = 3 }
+taffy = { opt-level = 3 }
+ttf-parser = { opt-level = 3 }
+resvg = { opt-level = 3 }
+image = { opt-level = 3 }

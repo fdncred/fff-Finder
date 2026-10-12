@@ -1,0 +1,349 @@
+//! Search scope bar, path bar, status bar, and the picker's choose bar.
+
+use std::path::PathBuf;
+
+use fff_finder_core::{KindFilter, ViewMode, places};
+use gpui_kit::assets::IconName as Lucide;
+use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
+use gpui_kit::component::slider::Slider;
+use gpui_kit::component::spinner::Spinner;
+use gpui_kit::component::{
+    ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _, h_flex,
+};
+use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::*;
+
+use super::{Finder, SearchScope, group_digits};
+use crate::actions::*;
+use crate::model::Location;
+use crate::theme::palette;
+
+impl Finder {
+    pub(super) fn render_scope_bar(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let theme = cx.theme();
+        let accent = theme.primary;
+        let muted = theme.muted_foreground;
+        let bar = theme.tab_bar;
+        let border = theme.border;
+        let hover = theme.list_hover;
+        let selected_bg = accent.opacity(0.14);
+
+        let chip = |id: &'static str, label: SharedString, on: bool| {
+            div()
+                .id(id)
+                .px(px(10.))
+                .py(px(3.))
+                .rounded(px(6.))
+                .text_color(if on { accent } else { muted })
+                .font_weight(if on {
+                    FontWeight::MEDIUM
+                } else {
+                    FontWeight::NORMAL
+                })
+                .when(on, |this| this.bg(selected_bg))
+                .when(!on, |this| this.hover(|s| s.bg(hover)))
+                .child(label)
+        };
+
+        let folder_name = self
+            .current_folder()
+            .map(fff_finder_core::entry::display_name);
+        let scope = self.scope;
+        let contents = self.search_contents;
+        let kind = self.config.kind_filter;
+        let view = cx.entity();
+
+        h_flex()
+            .h(px(36.))
+            .flex_shrink_0()
+            .px(px(16.))
+            .gap(px(10.))
+            .bg(bar)
+            .border_b_1()
+            .border_color(border)
+            .text_size(px(12.))
+            .child(div().text_color(muted).child("Search:"))
+            .child(
+                chip(
+                    "scope-computer",
+                    "This Computer".into(),
+                    scope == SearchScope::Computer,
+                )
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.set_scope(SearchScope::Computer, cx)
+                })),
+            )
+            .when_some(folder_name, |this, name| {
+                this.child(
+                    chip(
+                        "scope-folder",
+                        format!("“{name}”").into(),
+                        scope == SearchScope::Folder,
+                    )
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.set_scope(SearchScope::Folder, cx)
+                    })),
+                )
+            })
+            .child(div().w(px(1.)).h(px(16.)).bg(border))
+            .child(chip("by-name", "Name".into(), !contents).on_click(
+                cx.listener(|this, _: &ClickEvent, _, cx| this.set_search_contents(false, cx)),
+            ))
+            .child(chip("by-contents", "Contents".into(), contents).on_click(
+                cx.listener(|this, _: &ClickEvent, _, cx| this.set_search_contents(true, cx)),
+            ))
+            .child(div().flex_1())
+            .child(
+                div()
+                    .id("search-help")
+                    .p(px(3.))
+                    .rounded(px(5.))
+                    .hover(|s| s.bg(hover))
+                    .child(
+                        Icon::new(IconName::Info)
+                            .with_size(px(14.))
+                            .text_color(muted),
+                    )
+                    .on_click(|_, window, cx| window.dispatch_action(Box::new(SearchHelp), cx)),
+            )
+            .child(
+                Button::new("kind")
+                    .outline()
+                    .xsmall()
+                    .w(px(130.))
+                    .label(kind.label())
+                    .icon(Icon::new(IconName::ChevronsUpDown))
+                    .disabled(contents)
+                    .dropdown_menu_with_anchor(Anchor::TopRight, move |mut menu, window, _| {
+                        for option in KindFilter::ALL {
+                            menu = menu.item(
+                                PopupMenuItem::new(option.label())
+                                    .checked(option == kind)
+                                    .on_click(window.listener_for(
+                                        &view,
+                                        move |this: &mut Finder, _: &ClickEvent, _, cx| {
+                                            this.set_kind(option, cx)
+                                        },
+                                    )),
+                            );
+                        }
+                        menu.min_w(px(150.))
+                    }),
+            )
+    }
+
+    /// The path shown in the bar: the selected item while searching or in
+    /// Recents, otherwise the current folder.
+    fn path_bar_target(&self) -> Option<(PathBuf, bool)> {
+        let selected = self.primary_entry();
+        let detached = self.is_searching() || self.current_folder().is_none();
+        match (detached, selected) {
+            (true, Some(entry)) => Some((entry.path, !entry.is_dir)),
+            (true, None) => None,
+            (false, _) => self.current_folder().map(|p| (p.to_path_buf(), false)),
+        }
+    }
+
+    pub(super) fn render_path_bar(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let theme = cx.theme();
+        let bar = theme.status_bar;
+        let border = theme.status_bar_border;
+        let muted = theme.muted_foreground;
+        let fg = theme.foreground;
+        let hover = theme.list_hover;
+        let pal = palette(cx);
+
+        let mut crumbs = h_flex().gap(px(5.)).overflow_hidden();
+        if let Some((target, is_file)) = self.path_bar_target() {
+            let parts = places::breadcrumbs(&target);
+            let last = parts.len().saturating_sub(1);
+            for (ix, (name, path)) in parts.into_iter().enumerate() {
+                if ix > 0 {
+                    crumbs = crumbs.child(
+                        Icon::new(IconName::ChevronRight)
+                            .with_size(px(9.))
+                            .text_color(muted),
+                    );
+                }
+                let icon = if ix == 0 {
+                    Icon::new(IconName::HardDrive)
+                } else if ix == last && is_file {
+                    Icon::new(IconName::File)
+                } else {
+                    Icon::new(IconName::Folder)
+                };
+                let is_last = ix == last;
+                crumbs = crumbs.child(
+                    h_flex()
+                        .id(("crumb", ix))
+                        .gap(px(4.))
+                        .px(px(3.))
+                        .rounded(px(4.))
+                        .flex_shrink(if is_last { 0. } else { 1. })
+                        .min_w(px(20.))
+                        .hover(|s| s.bg(hover))
+                        .child(icon.with_size(px(12.)).text_color(if ix == 0 {
+                            muted
+                        } else {
+                            pal.sidebar_icon
+                        }))
+                        .child(
+                            div()
+                                .truncate()
+                                .text_color(if is_last { fg } else { muted })
+                                .child(name),
+                        )
+                        .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+                            let path = path.clone();
+                            if is_last && is_file {
+                                this.reveal_in_place(&path, window, cx);
+                            } else if event.click_count() >= 1 {
+                                this.navigate(Location::Folder(path), window, cx);
+                            }
+                        })),
+                );
+            }
+        }
+        h_flex()
+            .h(px(28.))
+            .flex_shrink_0()
+            .px(px(12.))
+            .bg(bar)
+            .border_t_1()
+            .border_color(border)
+            .text_size(px(11.))
+            .child(crumbs)
+    }
+
+    pub(super) fn render_status_bar(
+        &mut self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        if self.picker.is_some() {
+            return self.render_picker_bar(cx).into_any_element();
+        }
+        let theme = cx.theme();
+        let muted = theme.muted_foreground;
+        let bar = theme.status_bar;
+        let count = self.rows.len();
+        let selected = self.selection.len();
+        // Searches stop at the result limit; say so rather than imply a total.
+        let capped = self.is_searching() && count >= self.config.result_limit;
+        let shown = format!("{}{}", group_digits(count), if capped { "+" } else { "" });
+        let text = if selected > 0 {
+            format!("{selected} of {shown} selected")
+        } else if count == 1 {
+            "1 item".to_string()
+        } else {
+            format!("{shown} items")
+        };
+        let timing = self
+            .search_stats
+            .as_ref()
+            .filter(|_| self.is_searching())
+            .map(|stats| format!("{:.1} ms", stats.elapsed.as_secs_f64() * 1000.));
+        // The sidebar footer shows indexing progress when it is visible.
+        let indexing = self
+            .indexing_progress()
+            .filter(|_| !self.config.show_sidebar);
+        let icons = self.effective_view() == ViewMode::Icons;
+        h_flex()
+            .h(px(28.))
+            .flex_shrink_0()
+            .px(px(14.))
+            .gap(px(8.))
+            .bg(bar)
+            .text_size(px(11.))
+            .text_color(muted)
+            .child(text)
+            .when_some(timing, |this, timing| {
+                this.child("·").child(
+                    div()
+                        .font_family(cx.theme().mono_font_family.clone())
+                        .text_size(px(10.5))
+                        .child(timing),
+                )
+            })
+            .when(self.searching, |this| {
+                this.child(Spinner::new().xsmall().color(muted))
+            })
+            .when_some(indexing, |this, n| {
+                this.child(
+                    h_flex()
+                        .gap(px(6.))
+                        .child(Spinner::new().xsmall().color(muted))
+                        .child(format!("Indexing {} files…", group_digits(n))),
+                )
+            })
+            .child(div().flex_1())
+            .when(icons, |this| {
+                this.child(
+                    h_flex()
+                        .gap(px(6.))
+                        .child(
+                            Icon::new(IconName::Square)
+                                .with_size(px(9.))
+                                .text_color(muted),
+                        )
+                        .child(Slider::new(&self.icon_slider).w(px(100.)))
+                        .child(
+                            Icon::new(IconName::Square)
+                                .with_size(px(13.))
+                                .text_color(muted),
+                        ),
+                )
+            })
+            .into_any_element()
+    }
+
+    fn render_picker_bar(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        let multiple = self.picker.is_some_and(|p| p.multiple);
+        let count = self.selected_entries().len();
+        let hint = if multiple {
+            "Select one or more items, then press Return to choose. Esc cancels."
+        } else {
+            "Select an item, then press Return to choose. Esc cancels."
+        };
+        h_flex()
+            .h(px(44.))
+            .flex_shrink_0()
+            .px(px(14.))
+            .gap(px(8.))
+            .bg(theme.status_bar)
+            .border_t_1()
+            .border_color(theme.status_bar_border)
+            .text_size(px(12.))
+            .text_color(theme.muted_foreground)
+            .child(Icon::new(Lucide::Terminal).with_size(px(14.)))
+            .child(div().flex_1().truncate().child(hint))
+            .child(
+                Button::new("picker-cancel")
+                    .small()
+                    .label("Cancel")
+                    .on_click(|_, _, _| crate::picker::cancel()),
+            )
+            .child(
+                Button::new("picker-choose")
+                    .small()
+                    .primary()
+                    .label(if count > 1 {
+                        format!("Choose {count} Items")
+                    } else {
+                        "Choose".to_string()
+                    })
+                    .disabled(count == 0)
+                    .on_click(|_, window, cx| window.dispatch_action(Box::new(Choose), cx)),
+            )
+    }
+}

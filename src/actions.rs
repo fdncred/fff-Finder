@@ -1,0 +1,181 @@
+//! Actions, key bindings, and the application menu bar.
+
+use gpui_kit::{App, KeyBinding, Menu, MenuItem, OsAction, actions};
+
+actions!(
+    finder,
+    [
+        Quit,
+        NewWindow,
+        CloseWindow,
+        ShowSettings,
+        FocusSearch,
+        GoBack,
+        GoForward,
+        GoUp,
+        GoHome,
+        GoRecents,
+        GoToFolder,
+        OpenSelected,
+        QuickLook,
+        ToggleSidebar,
+        ViewIcons,
+        ViewList,
+        ViewColumns,
+        ViewGallery,
+        ToggleHidden,
+        Refresh,
+        SelectAll,
+        Escape,
+        MoveUp,
+        MoveDown,
+        MoveLeft,
+        MoveRight,
+        ExtendUp,
+        ExtendDown,
+        ExtendLeft,
+        ExtendRight,
+        MoveHome,
+        MoveEnd,
+        CopyPath,
+        CopyAsNuon,
+        RevealInFileManager,
+        MoveToTrash,
+        NewFolder,
+        Rename,
+        OpenInNushell,
+        ToggleNuPanel,
+        SearchHelp,
+        Rescan,
+        Choose,
+        ToggleAppearance,
+    ]
+);
+
+/// Key context of the browser window.
+pub const FINDER: &str = "Finder";
+/// Key context of the file views; arrows, Space and Return only apply here
+/// so they keep working normally in text fields.
+pub const FILES: &str = "FinderFiles";
+/// Key context of the Quick Look preview, so Space closes it.
+pub const QUICK_LOOK: &str = "QuickLook";
+
+pub fn bind_keys(cx: &mut App) {
+    let finder = Some(FINDER);
+    let files = Some(FILES);
+    cx.bind_keys([
+        KeyBinding::new("secondary-q", Quit, None),
+        KeyBinding::new("secondary-,", ShowSettings, None),
+        KeyBinding::new("secondary-n", NewWindow, None),
+        KeyBinding::new("secondary-w", CloseWindow, finder),
+        KeyBinding::new("secondary-f", FocusSearch, finder),
+        KeyBinding::new("secondary-[", GoBack, finder),
+        KeyBinding::new("secondary-]", GoForward, finder),
+        KeyBinding::new("alt-left", GoBack, finder),
+        KeyBinding::new("alt-right", GoForward, finder),
+        KeyBinding::new("secondary-up", GoUp, finder),
+        KeyBinding::new("secondary-shift-h", GoHome, finder),
+        KeyBinding::new("secondary-shift-f", GoRecents, finder),
+        KeyBinding::new("secondary-shift-g", GoToFolder, finder),
+        KeyBinding::new("secondary-1", ViewIcons, finder),
+        KeyBinding::new("secondary-2", ViewList, finder),
+        KeyBinding::new("secondary-3", ViewColumns, finder),
+        KeyBinding::new("secondary-4", ViewGallery, finder),
+        KeyBinding::new("secondary-shift-.", ToggleHidden, finder),
+        KeyBinding::new("secondary-r", Refresh, finder),
+        KeyBinding::new("secondary-alt-s", ToggleSidebar, finder),
+        KeyBinding::new("secondary-shift-n", NewFolder, finder),
+        KeyBinding::new("secondary-alt-c", CopyPath, finder),
+        KeyBinding::new("secondary-shift-c", CopyAsNuon, finder),
+        KeyBinding::new("secondary-alt-t", OpenInNushell, finder),
+        KeyBinding::new("ctrl-`", ToggleNuPanel, finder),
+        KeyBinding::new("secondary-shift-d", ToggleAppearance, finder),
+        KeyBinding::new("secondary-/", SearchHelp, finder),
+        // File views.
+        KeyBinding::new("up", MoveUp, files),
+        KeyBinding::new("down", MoveDown, files),
+        KeyBinding::new("left", MoveLeft, files),
+        KeyBinding::new("right", MoveRight, files),
+        KeyBinding::new("shift-up", ExtendUp, files),
+        KeyBinding::new("shift-down", ExtendDown, files),
+        KeyBinding::new("shift-left", ExtendLeft, files),
+        KeyBinding::new("shift-right", ExtendRight, files),
+        KeyBinding::new("home", MoveHome, files),
+        KeyBinding::new("end", MoveEnd, files),
+        KeyBinding::new("enter", OpenSelected, files),
+        KeyBinding::new("secondary-down", OpenSelected, files),
+        KeyBinding::new("secondary-o", OpenSelected, files),
+        KeyBinding::new("space", QuickLook, files),
+        KeyBinding::new("secondary-y", QuickLook, files),
+        KeyBinding::new("space", QuickLook, Some(QUICK_LOOK)),
+        KeyBinding::new("secondary-y", QuickLook, Some(QUICK_LOOK)),
+        KeyBinding::new("escape", Escape, files),
+        KeyBinding::new("secondary-a", SelectAll, files),
+        KeyBinding::new("secondary-c", CopyPath, files),
+        KeyBinding::new("f2", Rename, files),
+        KeyBinding::new("secondary-backspace", MoveToTrash, files),
+        KeyBinding::new("delete", MoveToTrash, files),
+    ]);
+}
+
+pub fn set_menus(cx: &mut App) {
+    cx.set_menus([
+        Menu::new("fffFinder").items([
+            MenuItem::action("Settings…", ShowSettings),
+            MenuItem::action("Rescan Index", Rescan),
+            MenuItem::separator(),
+            MenuItem::action("Quit fffFinder", Quit),
+        ]),
+        Menu::new("File").items([
+            MenuItem::action("New Window", NewWindow),
+            MenuItem::action("New Folder", NewFolder),
+            MenuItem::separator(),
+            MenuItem::action("Open", OpenSelected),
+            MenuItem::action("Quick Look", QuickLook),
+            MenuItem::action("Rename…", Rename),
+            MenuItem::action("Move to Trash", MoveToTrash),
+            MenuItem::separator(),
+            MenuItem::action("Close Window", CloseWindow),
+        ]),
+        Menu::new("Edit").items([
+            MenuItem::os_action("Undo", gpui_kit::component::input::Undo, OsAction::Undo),
+            MenuItem::os_action("Redo", gpui_kit::component::input::Redo, OsAction::Redo),
+            MenuItem::separator(),
+            MenuItem::os_action("Cut", gpui_kit::component::input::Cut, OsAction::Cut),
+            MenuItem::os_action("Copy", gpui_kit::component::input::Copy, OsAction::Copy),
+            MenuItem::os_action("Paste", gpui_kit::component::input::Paste, OsAction::Paste),
+            MenuItem::separator(),
+            MenuItem::action("Copy Path", CopyPath),
+            MenuItem::action("Copy as Nushell List", CopyAsNuon),
+            MenuItem::action("Select All Items", SelectAll),
+            MenuItem::separator(),
+            MenuItem::action("Find", FocusSearch),
+            MenuItem::action("Search Syntax…", SearchHelp),
+        ]),
+        Menu::new("View").items([
+            MenuItem::action("as Icons", ViewIcons),
+            MenuItem::action("as List", ViewList),
+            MenuItem::action("as Columns", ViewColumns),
+            MenuItem::action("as Gallery", ViewGallery),
+            MenuItem::separator(),
+            MenuItem::action("Toggle Sidebar", ToggleSidebar),
+            MenuItem::action("Show/Hide Hidden Files", ToggleHidden),
+            MenuItem::action("Toggle Light/Dark", ToggleAppearance),
+            MenuItem::action("Refresh", Refresh),
+        ]),
+        Menu::new("Go").items([
+            MenuItem::action("Back", GoBack),
+            MenuItem::action("Forward", GoForward),
+            MenuItem::action("Enclosing Folder", GoUp),
+            MenuItem::separator(),
+            MenuItem::action("Recents", GoRecents),
+            MenuItem::action("Home", GoHome),
+            MenuItem::action("Go to Folder…", GoToFolder),
+        ]),
+        Menu::new("Nushell").items([
+            MenuItem::action("Pipeline Panel", ToggleNuPanel),
+            MenuItem::action("Open in Nushell", OpenInNushell),
+            MenuItem::action("Copy as Nushell List", CopyAsNuon),
+        ]),
+    ]);
+}

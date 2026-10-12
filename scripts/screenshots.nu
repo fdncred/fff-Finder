@@ -1,0 +1,55 @@
+#!/usr/bin/env nu
+# Render the README screenshots from a generated demo folder (macOS, Metal).
+#
+#   nu scripts/screenshots.nu            # writes docs/images/*.png
+
+use common.nu *
+
+def main [
+    --out: path  # Output directory (default: docs/images)
+] {
+    let root = repo-root
+    let out = $out | default ($root | path join docs images) | path expand
+    mkdir $out
+    let demo = make-demo
+    cd $root
+    ^cargo build --example screenshot
+    let tool = $root | path join target debug examples screenshot
+    let shots = [
+        {file: icons-dark.png, args: [--view icons --dark]}
+        {file: list-light.png, args: [--view list --light --select 1]}
+        {file: search-dark.png, args: [--view list --dark --scope-folder --query proj]}
+        {file: gallery-dark.png, args: [--view gallery --dark --select 1]}
+        {file: quicklook-dark.png, args: [--view icons --dark --select 1 --quicklook]}
+        {file: nushell-dark.png, args: [--view list --dark --nu 'where type == file | select name size kind | sort-by size --reverse']}
+    ]
+    let written = $shots | each {|shot|
+        let file = $out | path join $shot.file
+        ^$tool $file --dir $demo ...$shot.args | ignore
+        $file
+    }
+    rm --recursive --force ($demo | path dirname)
+    $written
+}
+
+# A small, made-up project folder, so screenshots show no personal files.
+def make-demo []: nothing -> path {
+    let base = mktemp --directory
+    let demo = $base | path join 'Studio'
+    mkdir $demo
+    for dir in [Assets 'Brand guidelines' Exports Product Research Projects] {
+        mkdir ($demo | path join $dir)
+    }
+    [[client city revenue signed]; [Acme Lisbon 120000 2026-01-04] [Globex Austin 98000 2026-03-19] [Initech Berlin 143500 2025-11-02] [Umbrella Tokyo 77250 2026-07-30]]
+    | save ($demo | path join Budget.csv)
+    {primary: '#0A84FF', accent: '#FFD60A', background: '#1D2633'} | save ($demo | path join Colors.json)
+    "# Launch checklist\n\n- [x] Index the disk\n- [ ] Ship the plugin\n" | save ($demo | path join 'Launch checklist.md')
+    "Meeting notes\n\n* Search is instant\n* Nushell pipelines on selections\n" | save ($demo | path join 'Meeting notes.txt')
+    "Project brief: a Finder-style search app in Rust.\n" | save ($demo | path join 'Project brief.txt')
+    "# Studio\n\nDemo folder for fffFinder screenshots.\n" | save ($demo | path join README.md)
+    "# Roadmap\n\n1. Fuzzy search\n2. Nushell plugin\n" | save ($demo | path join Roadmap.md)
+    "Project Atlas\n" | save ($demo | path join Projects 'Project Atlas.txt')
+    "Project Borealis\n" | save ($demo | path join Projects 'Project Borealis.md')
+    cp (repo-root | path join assets app-icon.svg) ($demo | path join Assets Logo.svg)
+    $demo
+}
