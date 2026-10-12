@@ -1,8 +1,7 @@
 //! File classification used for icons, the "Kind" column, and kind filters.
 
-use std::path::Path;
-
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 /// Broad file category. Drives icon choice and the search "Kind" filter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

@@ -1,5 +1,5 @@
 //! Core of fffFinder: search engine wrapper around `fff-search`, file model,
-//! folder listing, sidebar places, settings, and formatting. Shared by the
+//! folder listing, sidebar places, settings, terminals, and formatting. Shared by the
 //! GUI and `nu_plugin_fff` so both see the same index roots and results.
 
 pub mod config;
@@ -9,6 +9,7 @@ pub mod format;
 pub mod kind;
 pub mod listing;
 pub mod places;
+pub mod terminals;
 
 pub use config::{Appearance, Config, ViewMode};
 pub use engine::{

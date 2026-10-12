@@ -1,8 +1,7 @@
 //! Finder-style human formatting for sizes and dates.
 
-use std::time::SystemTime;
-
 use chrono::{DateTime, Local};
+use std::time::SystemTime;
 
 /// Decimal units, as macOS Finder shows them: "41 bytes", "1.2 KB", "3.4 GB".
 pub fn human_size(bytes: u64) -> String {

@@ -1,10 +1,9 @@
 //! One asset source for the app: GPUI Kit's default icons, the extra Lucide
 //! icons used here, and fffFinder's own colored file-type icons.
 
-use std::borrow::Cow;
-
 use gpui_kit::assets::{Assets as KitAssets, icon_assets};
 use gpui_kit::{AssetSource, Result, SharedString};
+use std::borrow::Cow;
 
 icon_assets!(pub ExtraIcons, [
     AppWindow, ArrowUpDown, ClipboardCopy, Clock, Cloud, Columns3, Download, Film,

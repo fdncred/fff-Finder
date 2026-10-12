@@ -1,13 +1,14 @@
 //! Nushell integration that doesn't need GPUI: locating `nu`, running a
 //! pipeline over the selected files, previewing structured files with
-//! `open`, opening a terminal running `nu`, and NUON formatting.
-
-use std::io::Write;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+//! `open`, and NUON formatting. Terminals live in
+//! `fff_finder_core::terminals`.
 
 use fff_finder_core::{FileEntry, format};
 use serde_json::Value as Json;
+use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 /// Locate `nu`: the configured path, `PATH`, then common install locations
 /// (apps launched from Finder or a desktop menu get a minimal `PATH`).
@@ -119,8 +120,11 @@ pub fn run_pipeline(nu: &Path, pipeline: &str, entries: &[FileEntry], cwd: &Path
          | do {{\n{pipeline}\n}} | fff-render | to json --raw"
     );
     let script = format!("{PRELUDE}\n{script}");
-    run_script(nu, &script, Some(entries_json(entries)), cwd, &[])
+    run_script(nu, &script, Some(entries_json(entries)), cwd, &[], None)
 }
+
+/// Longest a preview may take before it is abandoned and the file shows its icon.
+pub const PREVIEW_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Preview a structured file (CSV, JSON, TOML, YAML, SQLite, …) with `open`.
 pub fn preview_file(nu: &Path, path: &Path) -> NuRun {
@@ -143,6 +147,7 @@ $data | fff-render | to json --raw
         None,
         cwd,
         &[("FFF_PREVIEW_PATH", path.as_os_str())],
+        Some(PREVIEW_TIMEOUT),
     )
 }
 
@@ -185,8 +190,9 @@ fn run_script(
     stdin: Option<String>,
     cwd: &Path,
     env: &[(&str, &std::ffi::OsStr)],
+    timeout: Option<Duration>,
 ) -> NuRun {
-    let started = std::time::Instant::now();
+    let started = Instant::now();
     let mut cmd = Command::new(nu);
     cmd.arg("--no-config-file");
     if stdin.is_some() {
@@ -206,17 +212,9 @@ fn run_script(
     for (key, value) in env {
         cmd.env(key, value);
     }
-    let result = cmd.spawn().and_then(|mut child| {
-        if let Some(input) = stdin
-            && let Some(mut pipe) = child.stdin.take()
-        {
-            // A writer thread avoids a deadlock when the output is large.
-            std::thread::spawn(move || {
-                let _ = pipe.write_all(input.as_bytes());
-            });
-        }
-        child.wait_with_output()
-    });
+    let result = cmd
+        .spawn()
+        .and_then(|child| wait_for(child, stdin, timeout));
     let elapsed = started.elapsed();
     match result {
         Err(err) => NuRun {
@@ -224,7 +222,15 @@ fn run_script(
             error: Some(format!("could not run {}: {err}", nu.display())),
             elapsed,
         },
-        Ok(out) => {
+        Ok(None) => NuRun {
+            output: NuOutput::Empty,
+            error: Some(format!(
+                "nu took longer than {} s and was stopped",
+                timeout.unwrap_or_default().as_secs()
+            )),
+            elapsed,
+        },
+        Ok(Some(out)) => {
             let stdout = String::from_utf8_lossy(&out.stdout);
             let stderr = strip_ansi(&String::from_utf8_lossy(&out.stderr));
             let output = parse_output(&stdout);
@@ -245,6 +251,64 @@ fn run_script(
             }
         }
     }
+}
+
+/// Feed stdin, collect output, and kill the child if it outlives `timeout`
+/// (`Ok(None)`). Pipes are drained on threads so a large output can't
+/// deadlock against a full pipe.
+fn wait_for(
+    mut child: std::process::Child,
+    stdin: Option<String>,
+    timeout: Option<Duration>,
+) -> std::io::Result<Option<std::process::Output>> {
+    if let Some(input) = stdin
+        && let Some(mut pipe) = child.stdin.take()
+    {
+        std::thread::spawn(move || {
+            let _ = pipe.write_all(input.as_bytes());
+        });
+    }
+    let Some(timeout) = timeout else {
+        return child.wait_with_output().map(Some);
+    };
+    let drain = |pipe: Option<Box<dyn Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            if let Some(mut pipe) = pipe {
+                let _ = pipe.read_to_end(&mut buf);
+            }
+            buf
+        })
+    };
+    let stdout = drain(
+        child
+            .stdout
+            .take()
+            .map(|p| Box::new(p) as Box<dyn Read + Send>),
+    );
+    let stderr = drain(
+        child
+            .stderr
+            .take()
+            .map(|p| Box::new(p) as Box<dyn Read + Send>),
+    );
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Ok(None);
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    Ok(Some(std::process::Output {
+        status,
+        stdout: stdout.join().unwrap_or_default(),
+        stderr: stderr.join().unwrap_or_default(),
+    }))
 }
 
 /// Turn `to json` output into a table or text.
@@ -348,151 +412,24 @@ pub fn to_nuon(paths: &[PathBuf]) -> String {
     }
 }
 
-/// Open a terminal window running `nu` in `dir`.
-///
-/// `template` (from settings) overrides the default; `{dir}` and `{nu}` are
-/// replaced and the result is split on whitespace into program and arguments.
-pub fn open_terminal(nu: &Path, dir: &Path, template: Option<&str>) -> std::io::Result<()> {
-    if let Some(template) = template.filter(|t| !t.trim().is_empty()) {
-        let parts: Vec<String> = template
-            .split_whitespace()
-            .map(|p| {
-                p.replace("{dir}", &dir.to_string_lossy())
-                    .replace("{nu}", &nu.to_string_lossy())
-            })
-            .collect();
-        let (program, args) = parts
-            .split_first()
-            .ok_or(std::io::ErrorKind::InvalidInput)?;
-        return Command::new(program)
-            .args(args)
-            .current_dir(dir)
-            .spawn()
-            .map(drop);
-    }
-    open_default_terminal(nu, dir)
-}
-
-#[cfg(target_os = "macos")]
-fn open_default_terminal(nu: &Path, dir: &Path) -> std::io::Result<()> {
-    // A `.command` file opens in Terminal.app and runs with the folder as cwd.
-    let script = std::env::temp_dir().join(format!("fffFinder-nu-{}.command", std::process::id()));
-    let quote = |p: &Path| format!("'{}'", p.to_string_lossy().replace('\'', r"'\''"));
-    std::fs::write(
-        &script,
-        format!(
-            "#!/bin/sh\ncd {} || exit 1\nrm -f {}\nexec {} --login\n",
-            quote(dir),
-            quote(&script),
-            quote(nu)
-        ),
-    )?;
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700))?;
-    Command::new("open")
-        .arg("-a")
-        .arg("Terminal")
-        .arg(&script)
-        .spawn()
-        .map(drop)
-}
-
-#[cfg(all(unix, not(target_os = "macos")))]
-fn open_default_terminal(nu: &Path, dir: &Path) -> std::io::Result<()> {
-    let nu = nu.to_string_lossy().into_owned();
-    let dir_s = dir.to_string_lossy().into_owned();
-    let candidates: Vec<(&str, Vec<String>)> = vec![
-        (
-            "wezterm",
-            vec![
-                "start".into(),
-                "--cwd".into(),
-                dir_s.clone(),
-                "--".into(),
-                nu.clone(),
-            ],
-        ),
-        ("kitty", vec!["-d".into(), dir_s.clone(), nu.clone()]),
-        (
-            "alacritty",
-            vec![
-                "--working-directory".into(),
-                dir_s.clone(),
-                "-e".into(),
-                nu.clone(),
-            ],
-        ),
-        (
-            "ghostty",
-            vec![
-                format!("--working-directory={dir_s}"),
-                "-e".into(),
-                nu.clone(),
-            ],
-        ),
-        (
-            "gnome-terminal",
-            vec![
-                format!("--working-directory={dir_s}"),
-                "--".into(),
-                nu.clone(),
-            ],
-        ),
-        (
-            "konsole",
-            vec!["--workdir".into(), dir_s.clone(), "-e".into(), nu.clone()],
-        ),
-        (
-            "xfce4-terminal",
-            vec![
-                format!("--working-directory={dir_s}"),
-                "-x".into(),
-                nu.clone(),
-            ],
-        ),
-        ("x-terminal-emulator", vec!["-e".into(), nu.clone()]),
-        ("xterm", vec!["-e".into(), nu.clone()]),
-    ];
-    let path = std::env::var_os("PATH").unwrap_or_default();
-    for (program, args) in candidates {
-        if std::env::split_paths(&path).any(|d| d.join(program).is_file()) {
-            return Command::new(program)
-                .args(args)
-                .current_dir(dir)
-                .spawn()
-                .map(drop);
-        }
-    }
-    Err(std::io::Error::new(
-        std::io::ErrorKind::NotFound,
-        "no terminal emulator found; set one in Settings",
-    ))
-}
-
-#[cfg(windows)]
-fn open_default_terminal(nu: &Path, dir: &Path) -> std::io::Result<()> {
-    // Windows Terminal when available, else a new console window.
-    let wt = Command::new("wt.exe")
-        .arg("-d")
-        .arg(dir)
-        .arg(nu)
-        .current_dir(dir)
-        .spawn();
-    if wt.is_ok() {
-        return Ok(());
-    }
-    use std::os::windows::process::CommandExt;
-    const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
-    Command::new(nu)
-        .current_dir(dir)
-        .creation_flags(CREATE_NEW_CONSOLE)
-        .spawn()
-        .map(drop)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn a_slow_child_is_stopped_at_the_timeout() {
+        let child = Command::new("sleep")
+            .arg("5")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let started = Instant::now();
+        let out = wait_for(child, None, Some(Duration::from_millis(200))).unwrap();
+        assert!(out.is_none());
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
 
     #[test]
     fn parses_tables() {

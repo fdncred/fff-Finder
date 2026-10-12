@@ -2,12 +2,8 @@
 //! parallel and merged by score. Folders outside every root get a temporary
 //! index on demand, so "search this folder" works anywhere.
 
-use std::collections::HashSet;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
-use std::time::{Duration, Instant, SystemTime};
-
+use crate::entry::{FileEntry, display_name};
+use crate::kind::{self, KindFilter};
 use fff_search::file_picker::FilePicker;
 use fff_search::{
     DirSearchConfig, FFFMode, FilePickerOptions, FrecencyTracker, FuzzySearchOptions, GrepMode,
@@ -15,9 +11,11 @@ use fff_search::{
     SharedFilePicker, SharedFrecency, SharedQueryTracker,
 };
 use serde::{Deserialize, Serialize};
-
-use crate::entry::{FileEntry, display_name};
-use crate::kind::{self, KindFilter};
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, RwLock};
+use std::time::{Duration, Instant, SystemTime};
 
 /// Temporary (outside-of-roots) indexes kept alive, most recent first.
 const MAX_ADHOC: usize = 3;
@@ -504,6 +502,40 @@ impl Engine {
         part
     }
 
+    /// Absolute paths of indexed files matching `pattern` (a glob over the
+    /// path inside each root, like `**/*.app/Contents/Info.plist`), across
+    /// every root. Nothing is re-ranked or hidden, package contents included.
+    pub fn glob(&self, pattern: &str, limit: usize) -> Vec<PathBuf> {
+        let mut found = Vec::new();
+        for root in &self.read_indexes().roots {
+            let Ok(guard) = root.picker.read() else {
+                continue;
+            };
+            let Some(picker) = guard.as_ref() else {
+                continue;
+            };
+            let base = picker.base_path().to_path_buf();
+            let result = picker.glob(
+                pattern,
+                FuzzySearchOptions {
+                    project_path: Some(&base),
+                    pagination: PaginationArgs { offset: 0, limit },
+                    ..Default::default()
+                },
+            );
+            found.extend(
+                result
+                    .items
+                    .iter()
+                    .map(|item| join_rel(&base, &item.relative_path(picker))),
+            );
+        }
+        found.sort();
+        found.dedup();
+        found.truncate(limit);
+        found
+    }
+
     /// Files modified in the last 30 days across the roots, newest first,
     /// skipping hidden paths, `Library` folders, and package contents.
     pub fn recents(&self, limit: usize) -> Vec<FileEntry> {
@@ -964,6 +996,33 @@ mod tests {
     fn subsequence() {
         assert!(is_subsequence("mrs", "main.rs"));
         assert!(!is_subsequence("engine", "crates/nu_plugin_fff/cargo.toml"));
+    }
+
+    #[test]
+    fn glob_finds_files_inside_bundles() {
+        let dir = std::env::temp_dir().join(format!("fff-glob-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for app in ["One.app", "nested/Two.app"] {
+            std::fs::create_dir_all(dir.join(app).join("Contents")).unwrap();
+            std::fs::write(dir.join(app).join("Contents/Info.plist"), "<plist/>").unwrap();
+        }
+        std::fs::write(dir.join("Info.plist"), "<plist/>").unwrap();
+        let engine = Engine::new(EngineOptions {
+            roots: vec![dir.clone()],
+            db_dir: None,
+            watch: false,
+        });
+        assert!(engine.wait_ready(Duration::from_secs(20)));
+        let found = engine.glob("**/*.app/Contents/Info.plist", 100);
+        let dir = strip_trailing_separator(&dir);
+        assert_eq!(
+            found,
+            vec![
+                dir.join("One.app/Contents/Info.plist"),
+                dir.join("nested/Two.app/Contents/Info.plist"),
+            ]
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

@@ -1,21 +1,22 @@
 //! Dialogs: settings, Go to Folder, rename, Move to Trash, and search syntax.
 
-use std::path::{Path, PathBuf};
-
+use super::{AppState, Finder, group_digits};
+use crate::actions::*;
+use crate::model::Location;
+use fff_finder_core::terminals::{self, CUSTOM, Platform, Terminal};
 use fff_finder_core::{Appearance, FileEntry, config};
 use gpui_kit::component::button::{Button, ButtonGroup, ButtonVariant, ButtonVariants as _};
 use gpui_kit::component::dialog::{DialogClose, DialogFooter};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::{
-    ActiveTheme as _, Icon, IconName, Selectable as _, Sizable as _, WindowExt as _, h_flex, v_flex,
+    ActiveTheme as _, Disableable as _, Icon, IconName, Selectable as _, Sizable as _,
+    WindowExt as _, h_flex, v_flex,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-
-use super::{AppState, Finder, group_digits};
-use crate::actions::*;
-use crate::model::Location;
+use std::path::{Path, PathBuf};
 
 /// Expand `~` and make relative paths relative to `base`.
 fn resolve_path(text: &str, base: Option<&Path>) -> PathBuf {
@@ -31,6 +32,17 @@ fn resolve_path(text: &str, base: Option<&Path>) -> PathBuf {
         expanded
     } else {
         base.map(|b| b.join(&expanded)).unwrap_or(expanded)
+    }
+}
+
+impl Finder {
+    /// A dialog returns focus to whatever had it when it opened. From a menu
+    /// that is the menu's button, which leaves the keyboard dead in the file
+    /// views, so focus the files first.
+    pub(super) fn focus_before_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !window.has_focused_input(cx) {
+            self.focus_files(window, cx);
+        }
     }
 }
 
@@ -50,17 +62,19 @@ impl Finder {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.focus_before_dialog(window, cx);
+        // Pick up terminals installed since the last look.
+        self.detect_terminals(cx);
         let terminal = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder(default_terminal_hint())
-                .default_value(self.config.terminal.clone().unwrap_or_default())
+                .placeholder(custom_terminal_hint())
+                .default_value(self.terminal_setting().command.unwrap_or_default())
         });
         self.dialog_sub = Some(
             cx.subscribe(&terminal, |this, input, event: &InputEvent, cx| {
                 if let InputEvent::Change = event {
                     let value = input.read(cx).value().trim().to_string();
-                    this.config.terminal = (!value.is_empty()).then_some(value);
-                    this.schedule_save(cx);
+                    this.set_terminal_command(value, cx);
                 }
             }),
         );
@@ -174,7 +188,9 @@ impl Finder {
                                         .small()
                                         .icon(IconName::RefreshCw)
                                         .label("Rescan")
-                                        .on_click(|_, window, cx| window.dispatch_action(Box::new(Rescan), cx)),
+                                        .on_click(window.listener_for(&view, |this: &mut Finder, _: &ClickEvent, window, cx| {
+                                            this.rescan(&Rescan, window, cx)
+                                        })),
                                 ),
                         )
                         .child(section("APPEARANCE", cx))
@@ -202,7 +218,11 @@ impl Finder {
                                         .small()
                                         .label("Show hidden files")
                                         .checked(hidden)
-                                        .on_change(|_, window, cx| window.dispatch_action(Box::new(ToggleHidden), cx)),
+                                        // The dialog sits outside the Finder view, so actions
+                                        // dispatched from here never reach it; call it directly.
+                                        .on_change(window.listener_for(&view, |this: &mut Finder, show: &bool, _, cx| {
+                                            this.set_show_hidden(*show, cx)
+                                        })),
                                 ),
                         )
                         .child(section("NUSHELL", cx))
@@ -212,14 +232,7 @@ impl Finder {
                                 None => "nu was not found on PATH or in the usual install locations.".to_string(),
                             }),
                         )
-                        .child(
-                            v_flex()
-                                .gap(px(4.))
-                                .child(div().text_size(px(12.)).text_color(muted).child(
-                                    "Terminal command for “Open Nushell Here” ({dir} and {nu} are replaced). Leave empty for the default.",
-                                ))
-                                .child(Input::new(&terminal).small().font_family(theme.mono_font_family.clone())),
-                        )
+                        .child(terminal_controls(finder, &view, &terminal, window, cx))
                         .child(
                             div()
                                 .p(px(10.))
@@ -272,6 +285,7 @@ impl Finder {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.focus_before_dialog(window, cx);
         let input = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder("~/Documents, /usr/local, C:\\Users…")
@@ -282,41 +296,6 @@ impl Finder {
                 )
         });
         let view = cx.entity();
-        let go = {
-            let view = view.clone();
-            let input = input.clone();
-            move |window: &mut Window, cx: &mut App| {
-                let text = input.read(cx).value().to_string();
-                view.update(cx, |this, cx| {
-                    let path = resolve_path(&text, this.current_folder());
-                    if path.is_dir() {
-                        this.navigate(Location::Folder(path), window, cx);
-                    } else if path.exists() {
-                        this.reveal_in_place(&path, window, cx);
-                    } else {
-                        window.push_notification(
-                            (
-                                gpui_kit::component::notification::NotificationType::Warning,
-                                format!("{} doesn’t exist", path.display()),
-                            ),
-                            cx,
-                        );
-                        return;
-                    }
-                    window.close_dialog(cx);
-                });
-            }
-        };
-        let on_enter = go.clone();
-        self.dialog_sub = Some(cx.subscribe_in(
-            &input,
-            window,
-            move |_, _, event: &InputEvent, window, cx| {
-                if let InputEvent::PressEnter { .. } = event {
-                    on_enter(window, cx);
-                }
-            },
-        ));
         let first = std::cell::Cell::new(true);
         window.open_dialog(cx, move |dialog, window, cx| {
             if first.replace(false) {
@@ -325,22 +304,59 @@ impl Finder {
                     s.select_all(window, cx);
                 });
             }
-            let go = go.clone();
+            let (ok_input, go_input) = (input.clone(), input.clone());
+            let ok_view = view.clone();
             dialog
                 .title("Go to Folder")
                 .w(px(480.))
-                .child(Input::new(&input).cleanable(true))
+                .child(Input::new(&input).id("goto-input").cleanable(true))
+                // Return confirms the dialog; it closes only when the path exists.
+                .on_ok(move |_, window, cx| {
+                    ok_view.update(cx, |this, cx| this.submit_go_to(&ok_input, window, cx))
+                })
                 .footer(
                     DialogFooter::new()
                         .child(DialogClose::new().child(Button::new("goto-cancel").label("Cancel")))
-                        .child(
-                            Button::new("goto-go")
-                                .primary()
-                                .label("Go")
-                                .on_click(move |_, window, cx| go(window, cx)),
-                        ),
+                        .child(Button::new("goto-go").primary().label("Go").on_click(
+                            window.listener_for(
+                                &view,
+                                move |this: &mut Finder, _: &ClickEvent, window, cx| {
+                                    if this.submit_go_to(&go_input, window, cx) {
+                                        window.close_dialog(cx);
+                                        this.focus_files(window, cx);
+                                    }
+                                },
+                            ),
+                        )),
                 )
         });
+    }
+
+    /// Open the folder (or reveal the file) typed in Go to Folder. Returns
+    /// whether the dialog should close.
+    fn submit_go_to(
+        &mut self,
+        input: &Entity<InputState>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let text = input.read(cx).value().to_string();
+        let path = resolve_path(&text, self.current_folder());
+        if path.is_dir() {
+            self.navigate(Location::Folder(path), window, cx);
+        } else if path.exists() {
+            self.reveal_in_place(&path, window, cx);
+        } else {
+            window.push_notification(
+                (
+                    gpui_kit::component::notification::NotificationType::Warning,
+                    format!("{} doesn’t exist", path.display()),
+                ),
+                cx,
+            );
+            return false;
+        }
+        true
     }
 
     pub(super) fn open_rename_dialog(
@@ -349,6 +365,7 @@ impl Finder {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.focus_before_dialog(window, cx);
         let name = fff_finder_core::entry::display_name(&path);
         let stem_len = if path.is_dir() {
             name.len()
@@ -357,63 +374,6 @@ impl Finder {
         };
         let input = cx.new(|cx| InputState::new(window, cx).default_value(name.clone()));
         let view = cx.entity();
-        let apply = {
-            let view = view.clone();
-            let input = input.clone();
-            let path = path.clone();
-            move |window: &mut Window, cx: &mut App| {
-                let new_name = input.read(cx).value().trim().to_string();
-                if new_name.is_empty() || new_name.contains(['/', '\\']) {
-                    return;
-                }
-                let target = path.with_file_name(&new_name);
-                if target == path {
-                    window.close_dialog(cx);
-                    return;
-                }
-                if target.exists() {
-                    window.push_notification(
-                        (
-                            gpui_kit::component::notification::NotificationType::Warning,
-                            format!("“{new_name}” already exists"),
-                        ),
-                        cx,
-                    );
-                    return;
-                }
-                match std::fs::rename(&path, &target) {
-                    Ok(()) => {
-                        view.update(cx, |this, cx| {
-                            this.previews.remove(&path);
-                            for row in this.results.iter_mut().filter(|r| r.entry.path == path) {
-                                if let Some(entry) = FileEntry::from_path(&target) {
-                                    *row = super::Row::new(entry, Vec::new(), None);
-                                }
-                            }
-                            this.load_listing(Some(target.clone()), true, cx);
-                        });
-                        window.close_dialog(cx);
-                    }
-                    Err(err) => window.push_notification(
-                        (
-                            gpui_kit::component::notification::NotificationType::Error,
-                            format!("Couldn’t rename: {err}"),
-                        ),
-                        cx,
-                    ),
-                }
-            }
-        };
-        let on_enter = apply.clone();
-        self.dialog_sub = Some(cx.subscribe_in(
-            &input,
-            window,
-            move |_, _, event: &InputEvent, window, cx| {
-                if let InputEvent::PressEnter { .. } = event {
-                    on_enter(window, cx);
-                }
-            },
-        ));
         let first = std::cell::Cell::new(true);
         window.open_dialog(cx, move |dialog, window, cx| {
             if first.replace(false) {
@@ -422,24 +382,78 @@ impl Finder {
                     s.set_selected_range(0..stem_len, cx);
                 });
             }
-            let apply = apply.clone();
+            let (ok_input, button_input) = (input.clone(), input.clone());
+            let (ok_path, button_path) = (path.clone(), path.clone());
+            let ok_view = view.clone();
             dialog
                 .title("Rename")
                 .w(px(440.))
-                .child(Input::new(&input))
+                .child(Input::new(&input).id("rename-input"))
+                .on_ok(move |_, window, cx| {
+                    ok_view.update(cx, |this, cx| {
+                        this.submit_rename(&ok_path, &ok_input, window, cx)
+                    })
+                })
                 .footer(
                     DialogFooter::new()
                         .child(
                             DialogClose::new().child(Button::new("rename-cancel").label("Cancel")),
                         )
-                        .child(
-                            Button::new("rename-ok")
-                                .primary()
-                                .label("Rename")
-                                .on_click(move |_, window, cx| apply(window, cx)),
-                        ),
+                        .child(Button::new("rename-ok").primary().label("Rename").on_click(
+                            window.listener_for(
+                                &view,
+                                move |this: &mut Finder, _: &ClickEvent, window, cx| {
+                                    if this.submit_rename(&button_path, &button_input, window, cx) {
+                                        window.close_dialog(cx);
+                                        this.focus_files(window, cx);
+                                    }
+                                },
+                            ),
+                        )),
                 )
         });
+    }
+
+    /// Rename `path` to the typed name. Returns whether the dialog should close.
+    fn submit_rename(
+        &mut self,
+        path: &Path,
+        input: &Entity<InputState>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let new_name = input.read(cx).value().trim().to_string();
+        let mut notify = |kind, message: String| {
+            window.push_notification((kind, message), cx);
+        };
+        use gpui_kit::component::notification::NotificationType::{Error, Warning};
+        if new_name.is_empty() {
+            return false;
+        }
+        if new_name.contains(['/', '\\']) {
+            notify(Warning, "A name can’t contain “/” or “\\”".into());
+            return false;
+        }
+        let target = path.with_file_name(&new_name);
+        if target == path {
+            return true;
+        }
+        if target.exists() {
+            notify(Warning, format!("“{new_name}” already exists"));
+            return false;
+        }
+        if let Err(err) = std::fs::rename(path, &target) {
+            notify(Error, format!("Couldn’t rename: {err}"));
+            return false;
+        }
+        self.previews.remove(path);
+        for row in self.results.iter_mut().filter(|r| r.entry.path == path) {
+            if let Some(entry) = FileEntry::from_path(&target) {
+                *row = super::Row::new(entry, Vec::new(), None);
+            }
+        }
+        self.load_listing(Some(target), true, cx);
+        true
     }
 
     pub(super) fn confirm_trash(
@@ -448,6 +462,7 @@ impl Finder {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.focus_before_dialog(window, cx);
         let count = entries.len();
         let title = if count == 1 {
             format!("Move “{}” to the Trash?", entries[0].name)
@@ -478,6 +493,7 @@ impl Finder {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.focus_before_dialog(window, cx);
         const ROWS: [(&str, &str); 10] = [
             (
                 "budget report",
@@ -536,14 +552,162 @@ impl Finder {
     }
 }
 
-fn default_terminal_hint() -> &'static str {
+fn custom_terminal_hint() -> &'static str {
     if cfg!(target_os = "macos") {
-        "Terminal.app — e.g. open -na Ghostty --args --working-directory={dir} -e {nu}"
+        "e.g. open -na WezTerm --args start --cwd {dir} -- {nu}"
     } else if cfg!(windows) {
-        "Windows Terminal — e.g. wt.exe -d {dir} {nu}"
+        "e.g. wt.exe -d {dir} {nu}"
     } else {
-        "auto-detect — e.g. wezterm start --cwd {dir} -- {nu}"
+        "e.g. foot --working-directory={dir} {nu}"
     }
+}
+
+/// The "Open Nushell Here" terminal: a menu of the terminals found, a button
+/// to try it, and the command field when the choice is a custom command.
+fn terminal_controls(
+    finder: &Finder,
+    view: &Entity<Finder>,
+    input: &Entity<InputState>,
+    window: &mut Window,
+    cx: &App,
+) -> impl IntoElement {
+    let theme = cx.theme();
+    let muted = theme.muted_foreground;
+    let setting = finder.terminal_setting();
+    let found = finder.terminals();
+    let env_terminal = std::env::var("TERMINAL").ok();
+    let automatic = found.and_then(|f| terminals::automatic(f, env_terminal.as_deref()));
+    let custom = setting.app.as_deref() == Some(CUSTOM);
+    let chosen = setting.app.as_deref().filter(|id| *id != CUSTOM);
+    let shown = match chosen {
+        Some(id) => found.and_then(|f| f.iter().find(|t| t.id == id)),
+        None => automatic,
+    };
+    let label: SharedString = if found.is_none() {
+        "Looking for terminals…".into()
+    } else if custom {
+        "Custom Command".into()
+    } else {
+        match (chosen, shown) {
+            (None, Some(t)) => format!("Automatic ({})", t.name).into(),
+            (None, None) => "Automatic (none found)".into(),
+            (Some(_), Some(t)) => t.name.clone().into(),
+            (Some(id), None) => format!("{id} (not installed)").into(),
+        }
+    };
+    let detail = if custom {
+        "Runs the command below.".to_string()
+    } else if let Some(t) = shown {
+        t.location
+            .as_deref()
+            .map(super::tildify)
+            .unwrap_or_else(|| "Opens nu in a new console window.".into())
+    } else if chosen.is_some() {
+        "Not installed here, so Automatic is used.".to_string()
+    } else if found.is_some() {
+        "No terminal was found; use a custom command.".to_string()
+    } else {
+        String::new()
+    };
+    let detail = format!("{detail} Saved for {}.", Platform::current().label());
+
+    let menu_view = view.clone();
+    let picker = Button::new("terminal-app")
+        .small()
+        .outline()
+        .label(label)
+        .dropdown_caret(true)
+        .disabled(found.is_none())
+        .dropdown_menu(move |menu, window, cx| {
+            let finder = menu_view.read(cx);
+            let current = finder.terminal_setting().app;
+            let found = finder
+                .terminals()
+                .map(<[Terminal]>::to_vec)
+                .unwrap_or_default();
+            let env_terminal = std::env::var("TERMINAL").ok();
+            let automatic = terminals::automatic(&found, env_terminal.as_deref())
+                .map_or_else(|| "none found".to_string(), |t| t.name.clone());
+            let pick = |app: Option<String>| {
+                window.listener_for(
+                    &menu_view,
+                    move |this: &mut Finder, _: &ClickEvent, _, cx| {
+                        this.set_terminal_app(app.clone(), cx)
+                    },
+                )
+            };
+            let mut menu = menu
+                .item(
+                    PopupMenuItem::new(format!("Automatic ({automatic})"))
+                        .checked(current.is_none())
+                        .on_click(pick(None)),
+                )
+                .separator();
+            for t in &found {
+                menu = menu.item(
+                    PopupMenuItem::new(t.name.clone())
+                        .checked(current.as_deref() == Some(t.id.as_str()))
+                        .on_click(pick(Some(t.id.clone()))),
+                );
+            }
+            menu.separator()
+                .item(
+                    PopupMenuItem::new("Custom Command")
+                        .checked(current.as_deref() == Some(CUSTOM))
+                        .on_click(pick(Some(CUSTOM.into()))),
+                )
+                .separator()
+                .item(PopupMenuItem::new("Detect Again").on_click(
+                    window.listener_for(&menu_view, |this: &mut Finder, _: &ClickEvent, _, cx| {
+                        this.detect_terminals(cx)
+                    }),
+                ))
+                .min_w(px(240.))
+        });
+
+    v_flex()
+        .gap(px(6.))
+        .child(
+            h_flex()
+                .gap(px(8.))
+                .child(div().text_size(px(12.)).child("Open Nushell Here in"))
+                .child(picker)
+                .child(
+                    Button::new("try-terminal")
+                        .small()
+                        .ghost()
+                        .label("Try It")
+                        .tooltip("Open Nushell in the current folder now")
+                        .on_click(window.listener_for(
+                            view,
+                            |this: &mut Finder, _: &ClickEvent, window, cx| {
+                                let dir = this
+                                    .current_folder()
+                                    .map(Path::to_path_buf)
+                                    .or_else(dirs::home_dir);
+                                if let Some(dir) = dir {
+                                    this.open_terminal_at(&dir, window, cx);
+                                }
+                            },
+                        )),
+                ),
+        )
+        .child(div().text_size(px(11.)).text_color(muted).child(detail))
+        .when(custom, |this| {
+            this.child(
+                v_flex()
+                    .gap(px(4.))
+                    .child(
+                        Input::new(input)
+                            .id("terminal-input")
+                            .small()
+                            .font_family(theme.mono_font_family.clone()),
+                    )
+                    .child(div().text_size(px(11.)).text_color(muted).child(
+                        "{dir} becomes the folder and {nu} the path to nu. Quote words that contain spaces.",
+                    )),
+            )
+        })
 }
 
 #[cfg(test)]

@@ -1,8 +1,7 @@
 //! Sidebar locations: standard favorites and mounted volumes, per platform.
 
-use std::path::{Path, PathBuf};
-
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 
 /// Icon hint for a sidebar row; the GUI maps these to glyphs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

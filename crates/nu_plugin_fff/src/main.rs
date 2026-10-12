@@ -3,11 +3,6 @@
 //! The plugin keeps its indexes in memory between calls (garbage collection
 //! is disabled once an index exists), so repeated searches are instant.
 
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::sync::{Arc, OnceLock};
-use std::time::Duration;
-
 use chrono::{DateTime, FixedOffset, Local};
 use fff_finder_core::{
     Config, Engine, EngineOptions, FileEntry, GrepRequest, KindFilter, SearchRequest, config,
@@ -19,6 +14,10 @@ use nu_protocol::{
     Category, Example, LabeledError, PipelineData, Record, Signature, Span, SyntaxShape, Type,
     Value, record,
 };
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
 pub struct FffPlugin {
     engine: OnceLock<Arc<Engine>>,

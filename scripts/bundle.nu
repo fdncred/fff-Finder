@@ -71,6 +71,7 @@ def info-plist [version: string]: nothing -> string {
   <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
+  <key>NSAppleEventsUsageDescription</key><string>fffFinder asks your terminal, such as Ghostty, to open a window running Nushell in a folder.</string>
 </dict>
 </plist>
 '

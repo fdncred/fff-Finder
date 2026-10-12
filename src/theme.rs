@@ -2,7 +2,7 @@
 
 use fff_finder_core::Appearance;
 use gpui_kit::component::{ActiveTheme as _, Theme, ThemeMode, ThemeRegistry};
-use gpui_kit::{App, Hsla, Rgba, Window, rgba};
+use gpui_kit::{Anchor, App, Hsla, Rgba, Window, px, rgba};
 
 pub fn install(cx: &mut App) {
     if let Err(err) = ThemeRegistry::global_mut(cx).load_themes_from_str(crate::assets::THEMES) {
@@ -18,6 +18,10 @@ pub fn install(cx: &mut App) {
         if let Some(dark) = &dark {
             theme.dark_theme = dark.clone();
         }
+        // Toasts default to the top right, over the search field and the
+        // toolbar menus; put them above the path and status bars instead.
+        theme.notification.placement = Anchor::BottomRight;
+        theme.notification.margins.bottom = px(68.);
     });
 }
 

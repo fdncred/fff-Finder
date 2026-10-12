@@ -2,9 +2,11 @@
 //! files (CSV, JSON, TOML, YAML, SQLite, …) are opened with Nushell and shown
 //! as tables.
 
-use std::io::Read as _;
-use std::path::Path;
-
+use super::views::file_icon;
+use super::{AppState, Finder};
+use crate::actions::QuickLook;
+use crate::nushell::{self, NuOutput};
+use crate::theme::palette;
 use fff_finder_core::{FileEntry, FileKind, format};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::dialog::DialogFooter;
@@ -13,12 +15,8 @@ use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{ActiveTheme as _, Sizable as _, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-
-use super::views::file_icon;
-use super::{AppState, Finder};
-use crate::actions::QuickLook;
-use crate::nushell::{self, NuOutput};
-use crate::theme::palette;
+use std::io::Read as _;
+use std::path::Path;
 
 const TEXT_LIMIT: usize = 64 * 1024;
 const TABLE_ROWS: usize = 200;
@@ -154,13 +152,17 @@ impl Finder {
 
     pub fn quick_look(&mut self, _: &QuickLook, window: &mut Window, cx: &mut Context<Self>) {
         if self.quick_look_open {
-            window.close_dialog(cx);
             self.quick_look_open = false;
-            return;
+            // The flag can outlive the dialog; only close what is open.
+            if window.has_active_dialog(cx) {
+                window.close_dialog(cx);
+                return;
+            }
         }
         let Some(entry) = self.primary_entry() else {
             return;
         };
+        self.focus_before_dialog(window, cx);
         self.ensure_preview(&entry, cx);
         self.quick_look_open = true;
         let view = cx.entity();
@@ -176,6 +178,7 @@ impl Finder {
                 return dialog;
             };
             let open_path = entry.path.clone();
+            let open_view = view.clone();
             let close_view = view.clone();
             dialog
                 .title(
@@ -206,13 +209,15 @@ impl Finder {
                                 .label(super::menus::reveal_label())
                                 .on_click({
                                     let path = entry.path.clone();
-                                    move |_, _, cx| cx.reveal_path(&path)
+                                    move |_, _, cx| crate::system::reveal(&path, cx)
                                 }),
                         )
                         .child(Button::new("ql-open").primary().label("Open").on_click(
                             move |_, window, cx| {
-                                cx.open_with_system(&open_path);
+                                crate::system::open(&open_path, cx);
+                                // `close_dialog` doesn't run `on_close`.
                                 window.close_dialog(cx);
+                                open_view.update(cx, |this, _| this.quick_look_open = false);
                             },
                         )),
                 )

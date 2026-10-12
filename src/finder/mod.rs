@@ -10,26 +10,27 @@ mod sidebar;
 mod toolbar;
 mod views;
 
-use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::time::{Duration, SystemTime};
-
+use crate::actions::*;
+use crate::model::{History, Location, Selection};
+use crate::nushell::{self, NuRun};
 use fff_finder_core::places::{self, Place};
+use fff_finder_core::terminals::{self, CUSTOM, Terminal, TerminalSetting};
 use fff_finder_core::{
     Config, Engine, FileEntry, GrepRequest, KindFilter, RootStatus, SearchRequest, SortKey,
     SortOrder, ViewMode, format, listing,
 };
+use gpui_kit::TestSupportExt as _;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::slider::{SliderEvent, SliderState};
 use gpui_kit::component::{ActiveTheme as _, ElementExt as _, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::{Duration, SystemTime};
 
-use crate::actions::*;
-use crate::model::{History, Location, Selection};
-use crate::nushell::{self, NuRun};
-
+pub use menus::reveal_label;
 pub use preview::Preview;
 pub use views::path_id;
 
@@ -37,6 +38,8 @@ pub use views::path_id;
 pub struct AppState {
     pub engine: Arc<Engine>,
     pub nu: Option<PathBuf>,
+    /// Use these terminals instead of detecting them (tests).
+    pub terminals: Option<Vec<Terminal>>,
 }
 
 impl Global for AppState {}
@@ -161,6 +164,9 @@ pub struct Finder {
     item_menu_at: Option<Point<Pixels>>,
 
     nu_open: bool,
+    /// Installed terminals for "Open Nushell Here"; `None` until detected.
+    terminals: Option<Vec<Terminal>>,
+    terminals_task: Task<()>,
     nu_input: Entity<InputState>,
     nu_result: Option<NuRun>,
     nu_running: bool,
@@ -170,6 +176,8 @@ pub struct Finder {
     locations: Vec<Place>,
     index_status: Vec<RootStatus>,
     status_task: Task<()>,
+    /// Applies a change of search roots; a newer change replaces it.
+    roots_task: Task<()>,
     watch_task: Task<()>,
     save_task: Task<()>,
 
@@ -282,6 +290,8 @@ impl Finder {
             quick_look_focus: cx.focus_handle(),
             item_menu_at: None,
             nu_open: false,
+            terminals: None,
+            terminals_task: Task::ready(()),
             nu_input,
             nu_result: None,
             nu_running: false,
@@ -290,6 +300,7 @@ impl Finder {
             locations: places::locations(),
             index_status: Vec::new(),
             status_task: Task::ready(()),
+            roots_task: Task::ready(()),
             watch_task: Task::ready(()),
             save_task: Task::ready(()),
             icon_slider,
@@ -302,6 +313,7 @@ impl Finder {
         this.load_listing(None, false, cx);
         this.poll_index_status(cx);
         this.watch_folder(cx);
+        this.detect_terminals(cx);
         if let Some(query) = query.filter(|q| !q.trim().is_empty()) {
             this.search_input
                 .update(cx, |s, cx| s.set_value(query.clone(), window, cx));
@@ -323,6 +335,49 @@ impl Finder {
             .iter()
             .map(|c| c.entries.iter().map(|e| e.name.clone()).collect())
             .collect()
+    }
+
+    #[doc(hidden)]
+    pub fn has_preview_for_test(&self, path: &Path) -> bool {
+        self.previews.contains_key(path)
+    }
+
+    #[doc(hidden)]
+    pub fn icon_size_for_test(&self) -> f32 {
+        self.config.icon_size
+    }
+
+    pub fn search_scope(&self) -> SearchScope {
+        self.scope
+    }
+
+    pub fn searches_contents(&self) -> bool {
+        self.search_contents
+    }
+
+    pub fn query(&self) -> &str {
+        &self.query
+    }
+
+    pub fn nu_panel_open(&self) -> bool {
+        self.nu_open
+    }
+
+    pub fn quick_look_is_open(&self) -> bool {
+        self.quick_look_open
+    }
+
+    pub fn favorites(&self) -> &[Place] {
+        &self.favorites
+    }
+
+    pub fn can_go_back(&self) -> bool {
+        self.history.can_back()
+    }
+
+    /// The window's settings as they are now.
+    pub fn config(&self) -> &Config {
+        &self.config
     }
 
     pub fn files_focus_handle(&self) -> FocusHandle {
@@ -557,7 +612,21 @@ impl Finder {
         if self.effective_view() == ViewMode::Columns {
             self.sync_root_column();
         }
+        self.select_first_for_gallery(cx);
         cx.notify();
+    }
+
+    /// The gallery always shows an item, like Finder: pick the first one
+    /// when nothing is selected.
+    fn select_first_for_gallery(&mut self, cx: &mut Context<Self>) {
+        if self.effective_view() == ViewMode::Gallery
+            && self.selection.is_empty()
+            && !self.rows.is_empty()
+        {
+            self.selection.select_only(0);
+            self.scroll_to(0);
+            self.selection_changed(cx);
+        }
     }
 
     // ----- search ------------------------------------------------------------
@@ -747,6 +816,8 @@ impl Finder {
                         this.index_status = this.engine.status();
                         let scanning = this.index_status.iter().any(|s| s.scanning);
                         if was_scanning && !scanning {
+                            // The index can now find terminals outside the app folders.
+                            this.detect_terminals(cx);
                             if this.is_searching() {
                                 this.run_search(false, cx);
                             }
@@ -781,15 +852,15 @@ impl Finder {
         self.schedule_save(cx);
         let engine = self.engine.clone();
         let roots = self.config.search_roots.clone();
-        cx.spawn(async move |this, cx| {
+        self.roots_task = cx.spawn(async move |this, cx| {
             cx.background_spawn(async move { engine.set_roots(&roots) })
                 .await;
             this.update(cx, |this, cx| this.poll_index_status(cx)).ok();
-        })
-        .detach();
+        });
+        cx.notify();
     }
 
-    fn rescan(&mut self, _: &Rescan, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn rescan(&mut self, _: &Rescan, window: &mut Window, cx: &mut Context<Self>) {
         let engine = self.engine.clone();
         cx.background_spawn(async move { engine.rescan() }).detach();
         window.push_notification("Rescanning the search index…", cx);
@@ -989,7 +1060,7 @@ impl Finder {
             return;
         }
         for entry in &entries {
-            cx.open_with_system(&entry.path);
+            crate::system::open(&entry.path, cx);
         }
         let engine = self.engine.clone();
         let paths: Vec<PathBuf> = entries.into_iter().map(|e| e.path).collect();
@@ -1001,7 +1072,7 @@ impl Finder {
         .detach();
     }
 
-    fn choose(&mut self, _: &Choose, _: &mut Window, _: &mut Context<Self>) {
+    pub(super) fn choose(&mut self, _: &Choose, _: &mut Window, _: &mut Context<Self>) {
         let Some(picker) = self.picker else { return };
         let mut paths: Vec<PathBuf> = self
             .selected_entries()
@@ -1031,6 +1102,7 @@ impl Finder {
         if let Some(ix) = self.selection.cursor() {
             self.scroll_to(ix);
         }
+        self.select_first_for_gallery(cx);
         self.selection_changed(cx);
         self.schedule_save(cx);
         cx.notify();
@@ -1073,15 +1145,32 @@ impl Finder {
     }
 
     fn toggle_hidden(&mut self, _: &ToggleHidden, _: &mut Window, cx: &mut Context<Self>) {
-        self.config.show_hidden = !self.config.show_hidden;
+        self.set_show_hidden(!self.config.show_hidden, cx);
+    }
+
+    pub fn set_show_hidden(&mut self, show: bool, cx: &mut Context<Self>) {
+        if self.config.show_hidden == show {
+            return;
+        }
+        self.config.show_hidden = show;
         self.schedule_save(cx);
         self.load_listing(None, true, cx);
+        let dirs: Vec<PathBuf> = self.columns.iter().map(|c| c.dir.clone()).collect();
+        for (ix, dir) in dirs.into_iter().enumerate().skip(1) {
+            self.load_column(ix, dir, cx);
+        }
         if self.is_searching() {
             self.run_search(false, cx);
         }
+        cx.notify();
     }
 
-    fn toggle_sidebar(&mut self, _: &ToggleSidebar, _: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn toggle_sidebar(
+        &mut self,
+        _: &ToggleSidebar,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.config.show_sidebar = !self.config.show_sidebar;
         self.schedule_save(cx);
         cx.notify();
@@ -1198,7 +1287,7 @@ impl Finder {
 
     fn reveal(&mut self, _: &RevealInFileManager, _: &mut Window, cx: &mut Context<Self>) {
         for entry in self.selected_entries() {
-            cx.reveal_path(&entry.path);
+            crate::system::reveal(&entry.path, cx);
         }
     }
 
@@ -1215,28 +1304,129 @@ impl Finder {
     }
 
     pub fn open_terminal_at(&mut self, dir: &Path, window: &mut Window, cx: &mut Context<Self>) {
+        use gpui_kit::component::notification::NotificationType;
         let Some(nu) = cx.global::<AppState>().nu.clone() else {
             window.push_notification(
                 (
-                    gpui_kit::component::notification::NotificationType::Warning,
+                    NotificationType::Warning,
                     "Nushell (nu) was not found. Set its path in Settings.",
                 ),
                 cx,
             );
             return;
         };
-        if let Err(err) = nushell::open_terminal(&nu, dir, self.config.terminal.as_deref()) {
-            window.push_notification(
-                (
-                    gpui_kit::component::notification::NotificationType::Error,
-                    format!("Could not open a terminal: {err}"),
-                ),
-                cx,
-            );
+        let Some(found) = self.terminals.clone() else {
+            // Still detecting: finish that, then open.
+            let engine = self.engine.clone();
+            let dir = dir.to_path_buf();
+            self.terminals_task = cx.spawn_in(window, async move |this, cx| {
+                let found = cx
+                    .background_spawn(async move { terminals::detect(Some(&engine)) })
+                    .await;
+                this.update_in(cx, |this, window, cx| {
+                    this.terminals = Some(found);
+                    this.open_terminal_at(&dir, window, cx);
+                })
+                .ok();
+            });
+            return;
+        };
+        let setting = self.config.terminal_setting();
+        let custom = setting
+            .command
+            .as_deref()
+            .filter(|_| setting.app.as_deref() == Some(CUSTOM))
+            .and_then(|command| terminals::custom_plan(command, &nu, dir));
+        let env_terminal = std::env::var("TERMINAL").ok();
+        let (plan, warning) = match custom {
+            Some(plan) => (plan, None),
+            None => match terminals::resolve(&found, &setting, env_terminal.as_deref()) {
+                Some((terminal, warning)) => (terminal.plan(&nu, dir), warning),
+                None => {
+                    window.push_notification(
+                        (
+                            NotificationType::Warning,
+                            "No terminal was found. Choose a command in Settings.",
+                        ),
+                        cx,
+                    );
+                    return;
+                }
+            },
+        };
+        if let Some(warning) = warning {
+            window.push_notification((NotificationType::Warning, warning), cx);
         }
+        let launched = crate::system::launch(plan, cx);
+        cx.spawn_in(window, async move |_, cx| {
+            if let Err(err) = launched.await {
+                cx.update(|window, cx| {
+                    window.push_notification(
+                        (
+                            NotificationType::Error,
+                            format!("Could not open a terminal: {err}"),
+                        ),
+                        cx,
+                    )
+                })
+                .ok();
+            }
+        })
+        .detach();
     }
 
-    fn toggle_nu_panel(&mut self, _: &ToggleNuPanel, window: &mut Window, cx: &mut Context<Self>) {
+    /// Look for installed terminals in the background.
+    pub fn detect_terminals(&mut self, cx: &mut Context<Self>) {
+        if let Some(fixed) = cx.global::<AppState>().terminals.clone() {
+            self.terminals = Some(fixed);
+            cx.notify();
+            return;
+        }
+        let engine = self.engine.clone();
+        self.terminals_task = cx.spawn(async move |this, cx| {
+            let found = cx
+                .background_spawn(async move { terminals::detect(Some(&engine)) })
+                .await;
+            this.update(cx, |this, cx| {
+                this.terminals = Some(found);
+                cx.notify();
+            })
+            .ok();
+        });
+    }
+
+    pub fn terminals(&self) -> Option<&[Terminal]> {
+        self.terminals.as_deref()
+    }
+
+    /// Choose the terminal by id, [`CUSTOM`], or `None` for automatic.
+    pub fn set_terminal_app(&mut self, app: Option<String>, cx: &mut Context<Self>) {
+        let mut setting = self.config.terminal_setting();
+        setting.app = app;
+        self.config.set_terminal_setting(setting);
+        self.schedule_save(cx);
+        cx.notify();
+    }
+
+    pub fn set_terminal_command(&mut self, command: String, cx: &mut Context<Self>) {
+        let mut setting = self.config.terminal_setting();
+        setting.command = (!command.trim().is_empty()).then_some(command);
+        self.config.set_terminal_setting(setting);
+        self.schedule_save(cx);
+        cx.notify();
+    }
+
+    /// The terminal setting for this system.
+    pub fn terminal_setting(&self) -> TerminalSetting {
+        self.config.terminal_setting()
+    }
+
+    pub(super) fn toggle_nu_panel(
+        &mut self,
+        _: &ToggleNuPanel,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.nu_open = !self.nu_open;
         if self.nu_open {
             self.nu_input.update(cx, |s, cx| s.focus(window, cx));
@@ -1571,6 +1761,11 @@ impl Render for Finder {
             .text_color(foreground)
             .text_size(px(13.))
             .font_family(font)
+            // Open, Quick Look and Select All are bound to keys only inside the
+            // file views, but menus can send them from anywhere in the window.
+            .on_action(cx.listener(Self::open_selected))
+            .on_action(cx.listener(Self::quick_look))
+            .on_action(cx.listener(Self::select_all))
             .on_action(cx.listener(Self::go_back))
             .on_action(cx.listener(Self::go_forward))
             .on_action(cx.listener(Self::go_up))
@@ -1690,16 +1885,14 @@ impl Finder {
         let entity = cx.entity();
         div()
             .id("content")
+            .test_support()
             .key_context(FILES)
             .track_focus(&self.files_focus)
             .flex_1()
             .min_h_0()
             .w_full()
             .relative()
-            .on_action(cx.listener(Self::open_selected))
-            .on_action(cx.listener(Self::select_all))
             .on_action(cx.listener(Self::escape))
-            .on_action(cx.listener(Self::quick_look))
             .on_action(cx.listener(|this, _: &MoveUp, window, cx| {
                 this.move_selection(0, -1, false, window, cx)
             }))

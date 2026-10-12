@@ -1,21 +1,20 @@
 //! The floating sidebar: Recents, Favorites, Locations, and index status.
 
-use std::path::PathBuf;
-
-use fff_finder_core::places::{Place, PlaceIcon};
-use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenuItem};
-use gpui_kit::component::spinner::Spinner;
-use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _, h_flex, v_flex};
-use gpui_kit::prelude::FluentBuilder as _;
-use gpui_kit::*;
-
 use super::toolbar::{TOOLBAR_HEIGHT, pill, pill_button, window_drag_area};
 use super::views::DraggedFiles;
 use super::{Finder, group_digits};
 use crate::actions::*;
 use crate::model::Location;
 use crate::theme::palette;
+use fff_finder_core::places::{Place, PlaceIcon};
+use gpui_kit::TestSupportExt as _;
+use gpui_kit::assets::IconName as Lucide;
+use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenuItem};
+use gpui_kit::component::spinner::Spinner;
+use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _, h_flex, v_flex};
+use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::*;
+use std::path::PathBuf;
 
 pub const SIDEBAR_WIDTH: f32 = 212.;
 
@@ -94,7 +93,6 @@ impl Finder {
             ));
         }
 
-        let entity = cx.entity();
         div()
             .w(px(SIDEBAR_WIDTH))
             .h_full()
@@ -134,10 +132,11 @@ impl Finder {
                                     .child(
                                         pill_button("hide-sidebar", IconName::PanelLeft, cx)
                                             .tooltip("Hide Sidebar")
-                                            .on_click(move |_, window, cx| {
-                                                let _ = &entity;
-                                                window.dispatch_action(Box::new(ToggleSidebar), cx)
-                                            }),
+                                            .on_click(cx.listener(
+                                                |this, _: &ClickEvent, window, cx| {
+                                                    this.toggle_sidebar(&ToggleSidebar, window, cx)
+                                                },
+                                            )),
                                     ),
                             ),
                     ))
@@ -174,46 +173,51 @@ impl Finder {
             .child(div().flex_1().truncate().child(label))
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 this.navigate(target.clone(), window, cx);
-            }));
+            }))
+            .test_support();
         let Some((place, is_favorite)) = place else {
             return row.into_any_element();
         };
         let path: PathBuf = place.path.clone();
-        row.context_menu(move |menu, window, _| {
-            let open_nu = path.clone();
-            let reveal = path.clone();
-            let remove = path.clone();
-            let mut menu = menu
-                .item(
-                    PopupMenuItem::new("Open Nushell Here")
-                        .icon(IconName::SquareTerminal)
-                        .on_click(window.listener_for(
-                            &view,
-                            move |this: &mut Finder, _: &ClickEvent, window, cx| {
-                                this.open_terminal_at(&open_nu, window, cx)
-                            },
-                        )),
-                )
-                .item(
-                    PopupMenuItem::new(super::menus::reveal_label())
-                        .icon(IconName::ExternalLink)
-                        .on_click(move |_, _, cx| cx.reveal_path(&reveal)),
-                );
-            if is_favorite {
-                menu = menu
-                    .separator()
+        // The menu lives on a wrapper so the row itself stays observable in UI tests.
+        div()
+            .id(SharedString::from(format!("place-menu:{}", path.display())))
+            .child(row)
+            .context_menu(move |menu, window, _| {
+                let open_nu = path.clone();
+                let reveal = path.clone();
+                let remove = path.clone();
+                let mut menu = menu
                     .item(
-                        PopupMenuItem::new("Remove from Sidebar").on_click(window.listener_for(
-                            &view,
-                            move |this: &mut Finder, _: &ClickEvent, _, cx| {
-                                this.remove_favorite(&remove, cx)
-                            },
-                        )),
+                        PopupMenuItem::new("Open Nushell Here")
+                            .icon(IconName::SquareTerminal)
+                            .on_click(window.listener_for(
+                                &view,
+                                move |this: &mut Finder, _: &ClickEvent, window, cx| {
+                                    this.open_terminal_at(&open_nu, window, cx)
+                                },
+                            )),
+                    )
+                    .item(
+                        PopupMenuItem::new(super::menus::reveal_label())
+                            .icon(IconName::ExternalLink)
+                            .on_click(move |_, _, cx| crate::system::reveal(&reveal, cx)),
                     );
-            }
-            menu
-        })
-        .into_any_element()
+                if is_favorite {
+                    menu =
+                        menu.separator()
+                            .item(PopupMenuItem::new("Remove from Sidebar").on_click(
+                                window.listener_for(
+                                    &view,
+                                    move |this: &mut Finder, _: &ClickEvent, _, cx| {
+                                        this.remove_favorite(&remove, cx)
+                                    },
+                                ),
+                            ));
+                }
+                menu
+            })
+            .into_any_element()
     }
 
     fn render_index_footer(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -255,7 +259,10 @@ impl Finder {
                             .with_size(px(14.))
                             .text_color(muted),
                     )
-                    .on_click(|_, window, cx| window.dispatch_action(Box::new(ShowSettings), cx)),
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        this.show_settings(&ShowSettings, window, cx)
+                    }))
+                    .test_support(),
             )
     }
 }

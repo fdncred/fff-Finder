@@ -1,6 +1,9 @@
 //! The unified toolbar: title, back/forward, view switcher, sort and action
 //! menus, Nushell menu, and the search field.
 
+use super::Finder;
+use crate::actions::*;
+use crate::theme::palette;
 use fff_finder_core::{SortKey, ViewMode};
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::{Button, ButtonRounded, ButtonVariants as _};
@@ -11,10 +14,6 @@ use gpui_kit::component::{
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-
-use super::Finder;
-use crate::actions::*;
-use crate::theme::palette;
 
 pub const TOOLBAR_HEIGHT: f32 = 52.;
 /// Room for the macOS traffic lights when they sit over this view.
@@ -79,13 +78,17 @@ impl Finder {
                 pill_button("back", IconName::ChevronLeft, cx)
                     .tooltip("Back")
                     .disabled(!can_back)
-                    .on_click(|_, window, cx| window.dispatch_action(Box::new(GoBack), cx)),
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        this.go_back(&GoBack, window, cx)
+                    })),
             )
             .child(
                 pill_button("forward", IconName::ChevronRight, cx)
                     .tooltip("Forward")
                     .disabled(!can_forward)
-                    .on_click(|_, window, cx| window.dispatch_action(Box::new(GoForward), cx)),
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        this.go_forward(&GoForward, window, cx)
+                    })),
             );
 
         let view_button = |id: &'static str,
@@ -210,9 +213,9 @@ impl Finder {
                         pill(cx).child(
                             pill_button("show-sidebar", IconName::PanelLeft, cx)
                                 .tooltip("Show Sidebar")
-                                .on_click(|_, window, cx| {
-                                    window.dispatch_action(Box::new(ToggleSidebar), cx)
-                                }),
+                                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                    this.toggle_sidebar(&ToggleSidebar, window, cx)
+                                })),
                         ),
                     )
                 })

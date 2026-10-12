@@ -1,11 +1,8 @@
 //! The four file views (icons, list, columns, gallery), loading skeletons,
 //! file icons, and dragging files out to other apps.
 
-use std::hash::{Hash, Hasher};
-use std::ops::Range;
-use std::path::PathBuf;
-use std::rc::Rc;
-
+use super::{Finder, Row};
+use crate::theme::{Palette, palette};
 use fff_finder_core::{FileEntry, FileKind, SortKey, ViewMode};
 use gpui_kit::TestSupportExt as _;
 use gpui_kit::component::menu::ContextMenuExt as _;
@@ -16,9 +13,10 @@ use gpui_kit::component::{
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-
-use super::{Finder, Row};
-use crate::theme::{Palette, palette};
+use std::hash::{Hash, Hasher};
+use std::ops::Range;
+use std::path::PathBuf;
+use std::rc::Rc;
 
 pub const LIST_ROW: f32 = 24.;
 pub const COLUMN_ROW: f32 = 22.;
@@ -369,6 +367,7 @@ impl Finder {
                     )
                 })
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set_sort(key, cx)))
+                .test_support()
         };
 
         let header = h_flex()
@@ -697,11 +696,14 @@ impl Finder {
                     files.0.iter().map(|p| (p.clone(), p.is_dir())),
                 )))
             })
-            .context_menu(move |menu, window, cx| {
-                let _ = &menu_entry;
-                super::menus::item_menu(&view, menu, window, cx)
-            });
-        div().w_full().px(px(6.)).child(row).into_any_element()
+            .test_support();
+        div()
+            .id(("crow-menu", path_id(&menu_entry.path)))
+            .w_full()
+            .px(px(6.))
+            .child(row)
+            .context_menu(move |menu, window, cx| super::menus::item_menu(&view, menu, window, cx))
+            .into_any_element()
     }
 
     // ----- gallery ---------------------------------------------------------------
@@ -716,6 +718,9 @@ impl Finder {
         let entry = self
             .primary_entry()
             .or_else(|| self.rows.first().map(|r| r.entry.clone()));
+        if let Some(entry) = &entry {
+            self.ensure_preview(entry, cx);
+        }
         let sizes: Rc<Vec<Size<Pixels>>> = Rc::new(vec![size(px(96.), px(112.)); self.rows.len()]);
         let strip = h_virtual_list(
             cx.entity(),

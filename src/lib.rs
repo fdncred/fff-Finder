@@ -9,15 +9,15 @@ pub mod finder;
 pub mod model;
 pub mod nushell;
 pub mod picker;
+pub mod system;
 pub mod theme;
-
-use std::path::PathBuf;
-
-use fff_finder_core::{Config, Engine, EngineOptions, config};
-use gpui_kit::*;
+pub mod watchdog;
 
 use crate::finder::{AppState, Finder, PickerOptions};
 use crate::model::Location;
+use fff_finder_core::{Config, Engine, EngineOptions, config};
+use gpui_kit::*;
+use std::path::PathBuf;
 
 /// Start indexing, open the first window, and run until it closes.
 pub fn run(args: args::Args) {
@@ -38,7 +38,16 @@ pub fn run(args: args::Args) {
         .with_assets(assets::AppAssets)
         .with_quit_mode(QuitMode::LastWindowClosed)
         .run(move |cx: &mut App| {
-            init(cx, AppState { engine, nu }, config.appearance);
+            init(
+                cx,
+                AppState {
+                    engine,
+                    nu,
+                    terminals: None,
+                },
+                config.appearance,
+            );
+            watchdog::start_if_enabled(cx);
             cx.on_action(move |_: &actions::Quit, cx: &mut App| {
                 if picker.is_some() {
                     picker::cancel();
@@ -84,30 +93,36 @@ pub fn start_location(arg: Option<&PathBuf>, config: &Config) -> Location {
         .unwrap_or(Location::Recents)
 }
 
-pub fn open_window(
-    start: Location,
-    query: Option<String>,
-    picker: Option<PickerOptions>,
-    cx: &mut App,
-) {
+/// Options for a browser window: on macOS a transparent titlebar with the
+/// traffic lights inset into the toolbar, which also handles window drags.
+pub fn window_options(title: SharedString, cx: &App) -> WindowOptions {
     let mac = cfg!(target_os = "macos");
-    let title: SharedString = match picker {
-        Some(PickerOptions { multiple: true }) => "Choose Files".into(),
-        Some(_) => "Choose a File".into(),
-        None => "fffFinder".into(),
-    };
-    let options = WindowOptions {
+    WindowOptions {
         window_bounds: Some(WindowBounds::centered(size(px(1100.), px(700.)), cx)),
         window_min_size: Some(size(px(850.), px(470.))),
         titlebar: Some(TitlebarOptions {
-            title: Some(title.clone()),
+            title: Some(title),
             appears_transparent: mac,
             traffic_light_position: mac.then(|| point(px(18.), px(18.))),
         }),
         app_owns_titlebar_drag: mac,
         app_id: Some("fffFinder".into()),
         ..Default::default()
+    }
+}
+
+pub fn open_window(
+    start: Location,
+    query: Option<String>,
+    picker: Option<PickerOptions>,
+    cx: &mut App,
+) -> Option<(AnyWindowHandle, Entity<Finder>)> {
+    let title: SharedString = match picker {
+        Some(PickerOptions { multiple: true }) => "Choose Files".into(),
+        Some(_) => "Choose a File".into(),
+        None => "fffFinder".into(),
     };
+    let options = window_options(title.clone(), cx);
     let result = gpui_kit::open_window(options, cx, move |window, cx| {
         window.set_window_title(&title);
         if picker.is_some() {
@@ -118,7 +133,11 @@ pub fn open_window(
         focus.focus(window, cx);
         view
     });
-    if let Err(err) = result {
-        eprintln!("fffFinder: could not open a window: {err}");
+    match result {
+        Ok(opened) => Some(opened),
+        Err(err) => {
+            eprintln!("fffFinder: could not open a window: {err}");
+            None
+        }
     }
 }

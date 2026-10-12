@@ -3,12 +3,8 @@
 //! ```text
 //! cargo run --example screenshot -- out.png [--dir PATH] [--view icons|list|columns|gallery]
 //!     [--light|--dark] [--query TEXT] [--scope-folder] [--select N] [--quicklook]
-//!     [--nu PIPELINE] [--size 1100x700] [--no-sidebar]
+//!     [--nu PIPELINE] [--size 1100x700] [--no-sidebar] [--settings]
 //! ```
-
-use std::path::PathBuf;
-use std::sync::Arc;
-use std::time::Duration;
 
 use fff_finder_app::finder::{AppState, Finder};
 use fff_finder_app::model::Location;
@@ -18,6 +14,9 @@ use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{
     AppContext as _, Bounds, HeadlessAppContext, WindowBounds, WindowOptions, px, size,
 };
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
 
 struct Options {
     out: PathBuf,
@@ -28,6 +27,7 @@ struct Options {
     select: Option<usize>,
     nu: Option<String>,
     quick_look: bool,
+    settings: bool,
     scope_folder: bool,
     width: f32,
     height: f32,
@@ -45,6 +45,7 @@ fn parse() -> Options {
         select: None,
         nu: None,
         quick_look: false,
+        settings: false,
         scope_folder: false,
         width: 1100.,
         height: 700.,
@@ -68,6 +69,7 @@ fn parse() -> Options {
             "--nu" => o.nu = args.next(),
             "--no-sidebar" => o.sidebar = false,
             "--quicklook" => o.quick_look = true,
+            "--settings" => o.settings = true,
             "--scope-folder" => o.scope_folder = true,
             "--size" => {
                 let s = args.next().expect("--size WxH");
@@ -100,7 +102,17 @@ fn main() {
         gpui_kit::platform::current_headless_renderer,
     );
     cx.allow_parking();
-    cx.update(|cx| fff_finder_app::init(cx, AppState { engine, nu }, o.appearance));
+    cx.update(|cx| {
+        fff_finder_app::init(
+            cx,
+            AppState {
+                engine,
+                nu,
+                terminals: None,
+            },
+            o.appearance,
+        )
+    });
 
     let dir = o.dir.clone();
     let (handle, view) = cx
@@ -163,6 +175,15 @@ fn main() {
             view.update(cx, |finder, cx| {
                 finder.quick_look(&fff_finder_app::actions::QuickLook, window, cx)
             });
+        })
+        .ok();
+        settle(&mut cx);
+        settle(&mut cx);
+    }
+    if o.settings {
+        cx.update_window(handle, |_, window, cx| {
+            view.update(cx, |finder, cx| finder.focus_files(window, cx));
+            window.dispatch_action(Box::new(fff_finder_app::actions::ShowSettings), cx);
         })
         .ok();
         settle(&mut cx);

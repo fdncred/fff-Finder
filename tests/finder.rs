@@ -1,127 +1,78 @@
-//! Drive the real browser window headlessly: listing, navigation, search,
-//! keyboard selection, the column view, and copying paths.
+//! Browsing, searching, and every keyboard shortcut, driven through real key
+//! presses in a headless window.
 
-use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
-use std::time::Duration;
+mod common;
 
-use fff_finder_app::actions::{CopyPath, ExtendDown, MoveDown};
-use fff_finder_app::finder::{AppState, Finder};
+use common::{Fixture, Ui, cmd};
 use fff_finder_app::model::Location;
-use fff_finder_core::{Appearance, Engine, EngineOptions, ViewMode};
-use gpui_kit::test::TestWindowExt as _;
-use gpui_kit::{AnyWindowHandle, AppContext as _, Entity, TestAppContext, WindowOptions};
-
-struct Fixture {
-    dir: PathBuf,
-}
-
-impl Fixture {
-    fn new(name: &str) -> Fixture {
-        let dir = std::env::temp_dir().join(format!("fff-finder-ui-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(dir.join("Projects/atlas")).unwrap();
-        std::fs::write(dir.join("Budget.csv"), "a,b\n1,2\n").unwrap();
-        std::fs::write(dir.join("Roadmap.md"), "# Roadmap\n").unwrap();
-        std::fs::write(dir.join("Projects/atlas/Project Atlas.txt"), "atlas").unwrap();
-        isolate_settings();
-        Fixture { dir }
-    }
-}
-
-/// Point settings at one empty temp folder, once, before any window opens.
-fn isolate_settings() {
-    static CONFIG: OnceLock<PathBuf> = OnceLock::new();
-    CONFIG.get_or_init(|| {
-        let config =
-            std::env::temp_dir().join(format!("fff-finder-ui-config-{}", std::process::id()));
-        std::fs::create_dir_all(&config).unwrap();
-        // SAFETY: runs once, inside the OnceLock, before any test reads the variable.
-        unsafe { std::env::set_var("FFFFINDER_CONFIG_DIR", &config) };
-        config
-    });
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.dir);
-    }
-}
-
-fn open(cx: &mut TestAppContext, dir: &Path) -> (AnyWindowHandle, Entity<Finder>) {
-    let engine = Engine::new(EngineOptions {
-        roots: vec![dir.to_path_buf()],
-        db_dir: None,
-        watch: false,
-    });
-    assert!(engine.wait_ready(Duration::from_secs(20)));
-    cx.update(|cx| fff_finder_app::init(cx, AppState { engine, nu: None }, Appearance::Light));
-    let start = Location::Folder(dir.to_path_buf());
-    let (handle, view) = cx
-        .update(|cx| {
-            gpui_kit::open_window(WindowOptions::default(), cx, move |window, cx| {
-                cx.new(|cx| Finder::new(start, None, None, window, cx))
-            })
-        })
-        .unwrap();
-    view.update(cx, |f, _| f.set_persist(false));
-    settle(cx);
-    (handle, view)
-}
-
-fn settle(cx: &mut TestAppContext) {
-    for _ in 0..5 {
-        cx.run_until_parked();
-        cx.executor().advance_clock(Duration::from_millis(100));
-    }
-    cx.run_until_parked();
-}
-
-fn names(view: &Entity<Finder>, cx: &TestAppContext) -> Vec<String> {
-    view.read_with(cx, |f, _| {
-        f.rows_for_test()
-            .iter()
-            .map(|r| r.entry.name.clone())
-            .collect()
-    })
-}
+use fff_finder_core::ViewMode;
+use gpui_kit::TestAppContext;
+use gpui_kit::component::{ActiveTheme as _, WindowExt as _};
 
 #[gpui_kit::test]
 fn lists_navigates_and_goes_back(cx: &mut TestAppContext) {
     let fx = Fixture::new("nav");
-    let (handle, view) = open(cx, &fx.dir);
-    assert_eq!(names(&view, cx), ["Budget.csv", "Projects", "Roadmap.md"]);
+    let mut ui = Ui::open(cx, &fx.dir);
+    assert_eq!(
+        ui.names(),
+        ["Budget.csv", "notes.txt", "Projects", "Roadmap.md"]
+    );
 
-    // Double-click a folder to open it.
-    cx.update_window(handle, |_, window, cx| {
-        view.update(cx, |f, cx| {
-            f.click_row(1, Default::default(), 2, window, cx)
-        });
-    })
-    .unwrap();
-    settle(cx);
-    assert_eq!(names(&view, cx), ["atlas"]);
+    ui.update(|f, window, cx| f.click_row(2, Default::default(), 2, window, cx));
+    assert_eq!(ui.names(), ["atlas"]);
 
-    // Back returns to the parent with the folder we left selected.
-    cx.update_window(handle, |_, window, cx| {
-        view.update(cx, |f, cx| {
-            f.go_back(&fff_finder_app::actions::GoBack, window, cx)
-        });
-    })
-    .unwrap();
-    settle(cx);
-    let selected = view.read_with(cx, |f, _| f.selected_entries());
-    assert_eq!(selected.len(), 1);
-    assert_eq!(selected[0].name, "Projects");
+    ui.press(&cmd("["));
+    assert_eq!(ui.folder().as_deref(), Some(fx.dir.as_path()));
+    assert_eq!(
+        ui.selected(),
+        ["Projects"],
+        "back selects the folder we left"
+    );
+    ui.press(&cmd("]"));
+    assert_eq!(ui.folder(), Some(fx.path("Projects")));
+    ui.press("alt-left");
+    assert_eq!(ui.folder().as_deref(), Some(fx.dir.as_path()));
+    ui.press("alt-right");
+    ui.press(&cmd("up"));
+    assert_eq!(
+        ui.folder().as_deref(),
+        Some(fx.dir.as_path()),
+        "Cmd-Up goes to the parent"
+    );
+    assert_eq!(ui.selected(), ["Projects"]);
+
+    // Cmd-Down, Cmd-O, and Return open the selection.
+    ui.press(&cmd("down"));
+    assert_eq!(ui.folder(), Some(fx.path("Projects")));
+    ui.press(&cmd("up"));
+    ui.press(&cmd("o"));
+    assert_eq!(ui.folder(), Some(fx.path("Projects")));
+    ui.press(&cmd("up"));
+    ui.press("enter");
+    assert_eq!(ui.folder(), Some(fx.path("Projects")));
+}
+
+#[gpui_kit::test]
+fn go_shortcuts(cx: &mut TestAppContext) {
+    let fx = Fixture::new("go-keys");
+    let mut ui = Ui::open(cx, &fx.dir);
+    ui.press(&cmd("shift-f"));
+    assert_eq!(ui.read(|f| f.location().clone()), Location::Recents);
+    ui.press(&cmd("shift-h"));
+    assert_eq!(ui.folder(), dirs::home_dir());
 }
 
 #[gpui_kit::test]
 fn searches_by_name_and_returns_to_browsing(cx: &mut TestAppContext) {
     let fx = Fixture::new("search");
-    let (_, view) = open(cx, &fx.dir);
-    view.update(cx, |f, cx| f.set_query("atlas".into(), true, cx));
-    settle(cx);
-    let found = names(&view, cx);
+    let mut ui = Ui::open(cx, &fx.dir);
+    ui.press(&cmd("f"));
+    assert!(
+        ui.window(|window, cx| window.has_focused_input(cx)),
+        "Cmd-F focuses search"
+    );
+    ui.type_text("atlas");
+    let found = ui.names();
     assert!(
         found.contains(&"Project Atlas.txt".to_string()),
         "{found:?}"
@@ -131,107 +82,185 @@ fn searches_by_name_and_returns_to_browsing(cx: &mut TestAppContext) {
         "folders match too: {found:?}"
     );
 
-    view.update(cx, |f, cx| f.set_query(String::new(), true, cx));
-    settle(cx);
-    assert_eq!(names(&view, cx), ["Budget.csv", "Projects", "Roadmap.md"]);
-}
+    // Return moves into the results with the first one selected.
+    ui.press("enter");
+    assert!(ui.files_focused());
+    assert_eq!(ui.selected().len(), 1);
 
-#[gpui_kit::test]
-fn keyboard_selection_and_copy_path(cx: &mut TestAppContext) {
-    let fx = Fixture::new("keys");
-    let (handle, view) = open(cx, &fx.dir);
-    // In the icon grid Down moves a whole row; the list moves one item.
-    view.update(cx, |f, cx| f.set_view_mode(ViewMode::List, cx));
-    cx.update_window(handle, |_, window, cx| {
-        view.update(cx, |f, cx| f.focus_files(window, cx))
-    })
-    .unwrap();
-    cx.dispatch_action(handle, MoveDown);
-    cx.dispatch_action(handle, ExtendDown);
-    settle(cx);
-    let selected: Vec<String> = view.read_with(cx, |f, _| {
-        f.selected_entries().into_iter().map(|e| e.name).collect()
-    });
-    assert_eq!(selected, ["Budget.csv", "Projects"]);
-
-    cx.dispatch_action(handle, CopyPath);
-    settle(cx);
-    let copied = cx
-        .read_from_clipboard()
-        .and_then(|c| c.text())
-        .unwrap_or_default();
+    // Escape clears the selection, then the search.
+    ui.press("escape");
+    assert!(ui.selected().is_empty());
+    ui.press("escape");
     assert_eq!(
-        copied,
-        format!(
-            "{}\n{}",
-            fx.dir.join("Budget.csv").display(),
-            fx.dir.join("Projects").display()
-        )
+        ui.names(),
+        ["Budget.csv", "notes.txt", "Projects", "Roadmap.md"]
     );
 }
 
 #[gpui_kit::test]
-fn column_view_opens_folders_to_the_right(cx: &mut TestAppContext) {
-    let fx = Fixture::new("columns");
-    let (handle, view) = open(cx, &fx.dir);
-    view.update(cx, |f, cx| f.set_view_mode(ViewMode::Columns, cx));
-    cx.update_window(handle, |_, window, cx| {
-        view.update(cx, |f, cx| f.select_in_column(0, 1, window, cx));
-    })
-    .unwrap();
-    settle(cx);
-    let columns = view.read_with(cx, |f, _| f.column_names_for_test());
-    assert_eq!(
-        columns,
-        vec![vec!["Budget.csv", "Projects", "Roadmap.md"], vec!["atlas"]]
-    );
+fn arrow_keys_select_in_each_view(cx: &mut TestAppContext) {
+    let fx = Fixture::new("arrows");
+    let mut ui = Ui::open(cx, &fx.dir);
+
+    ui.press(&cmd("2"));
+    assert_eq!(ui.read(|f| f.effective_view()), ViewMode::List);
+    ui.press("down");
+    ui.press("shift-down");
+    assert_eq!(ui.selected(), ["Budget.csv", "notes.txt"]);
+    ui.press("up");
+    assert_eq!(ui.selected(), ["Budget.csv"]);
+    ui.press("end");
+    assert_eq!(ui.selected(), ["Roadmap.md"]);
+    ui.press("home");
+    assert_eq!(ui.selected(), ["Budget.csv"]);
+    ui.press("shift-down");
+    ui.press("shift-down");
+    ui.press("shift-up");
+    assert_eq!(ui.selected(), ["Budget.csv", "notes.txt"]);
+    ui.press(&cmd("a"));
+    assert_eq!(ui.selected().len(), 4, "Cmd-A selects everything");
+    ui.press("escape");
+    assert!(ui.selected().is_empty());
+
+    // Icons and the gallery move with Left and Right too.
+    ui.press(&cmd("1"));
+    assert_eq!(ui.read(|f| f.effective_view()), ViewMode::Icons);
+    ui.press("right");
+    ui.press("right");
+    assert_eq!(ui.selected(), ["notes.txt"]);
+    ui.press("shift-left");
+    assert_eq!(ui.selected(), ["Budget.csv", "notes.txt"]);
+    ui.press("shift-right");
+    assert_eq!(ui.selected(), ["notes.txt"]);
+
+    ui.press(&cmd("4"));
+    assert_eq!(ui.read(|f| f.effective_view()), ViewMode::Gallery);
+    ui.press("right");
+    assert_eq!(ui.selected().len(), 1);
+
+    // Columns: Right enters a folder, Left comes back.
+    ui.press(&cmd("3"));
+    assert_eq!(ui.read(|f| f.effective_view()), ViewMode::Columns);
+    ui.update(|f, window, cx| f.select_in_column(0, 2, window, cx));
+    assert_eq!(ui.read(|f| f.column_names_for_test()).len(), 2);
+    ui.press("right");
+    assert_eq!(ui.selected(), ["atlas"]);
+    ui.press("left");
+    assert_eq!(ui.selected(), ["Projects"]);
 }
 
 #[gpui_kit::test]
-fn toolbar_dropdown_opens_a_menu(cx: &mut TestAppContext) {
-    let fx = Fixture::new("dropdown");
-    let (handle, _) = open(cx, &fx.dir);
-    cx.update_window(handle, |_, window, cx| {
-        window.render_frame(cx);
-        assert!(window.try_find("popup-menu").is_none());
-        window.click("sort", cx);
-        window.render_frame(cx);
-        window.render_frame(cx);
-        assert!(
-            window.try_find("popup-menu").is_some(),
-            "sort menu did not open"
-        );
-    })
-    .unwrap();
+fn clipboard_shortcuts(cx: &mut TestAppContext) {
+    let fx = Fixture::new("clipboard");
+    let mut ui = Ui::open(cx, &fx.dir);
+    ui.press(&cmd("2"));
+    ui.press("down");
+    ui.press("shift-down");
+    let both = format!(
+        "{}\n{}",
+        fx.path("Budget.csv").display(),
+        fx.path("notes.txt").display()
+    );
+    ui.press(&cmd("c"));
+    assert_eq!(ui.clipboard(), both);
+    ui.cx
+        .write_to_clipboard(gpui_kit::ClipboardItem::new_string(String::new()));
+    ui.press(&cmd("alt-c"));
+    assert_eq!(ui.clipboard(), both);
+    ui.press(&cmd("shift-c"));
+    assert!(
+        ui.clipboard().starts_with('['),
+        "NUON list: {}",
+        ui.clipboard()
+    );
+    assert!(ui.clipboard().contains("notes.txt"));
 }
 
 #[gpui_kit::test]
-fn right_click_selects_the_row_and_opens_its_menu(cx: &mut TestAppContext) {
-    let fx = Fixture::new("context");
-    let (handle, view) = open(cx, &fx.dir);
-    view.update(cx, |f, cx| f.set_view_mode(ViewMode::List, cx));
-    settle(cx);
-    let row = (
-        "row",
-        fff_finder_app::finder::path_id(&fx.dir.join("Roadmap.md")),
+fn window_shortcuts(cx: &mut TestAppContext) {
+    let fx = Fixture::new("window-keys");
+    let mut ui = Ui::open(cx, &fx.dir);
+
+    ui.press(&cmd("shift-."));
+    assert!(ui.read(|f| f.config().show_hidden));
+    assert!(ui.names().contains(&".secret".to_string()));
+    ui.press(&cmd("shift-."));
+    assert!(!ui.names().contains(&".secret".to_string()));
+
+    ui.press(&cmd("alt-s"));
+    assert!(!ui.read(|f| f.config().show_sidebar));
+    ui.press(&cmd("alt-s"));
+    assert!(ui.read(|f| f.config().show_sidebar));
+
+    let dark = ui.cx.update(|cx| cx.theme().is_dark());
+    ui.press(&cmd("shift-d"));
+    assert_ne!(ui.cx.update(|cx| cx.theme().is_dark()), dark);
+
+    std::fs::write(fx.path("new.txt"), "x").unwrap();
+    ui.press(&cmd("r"));
+    assert!(
+        ui.names().contains(&"new.txt".to_string()),
+        "Cmd-R refreshes"
     );
-    cx.update_window(handle, |_, window, cx| {
-        window.render_frame(cx);
-        window.right_click(row, cx);
-    })
-    .unwrap();
-    // The menu is built on the frame after the click.
-    settle(cx);
-    cx.update_window(handle, |_, window, cx| {
-        window.render_frame(cx);
-        assert!(
-            window.try_find("popup-menu").is_some(),
-            "context menu did not open"
-        );
-    })
-    .unwrap();
-    let selected: Vec<String> = view.read_with(cx, |f, _| {
-        f.selected_entries().into_iter().map(|e| e.name).collect()
-    });
-    assert_eq!(selected, ["Roadmap.md"]);
+
+    ui.press("ctrl-`");
+    assert!(ui.read(|f| f.nu_panel_open()));
+    ui.press("ctrl-`");
+    assert!(!ui.read(|f| f.nu_panel_open()));
+
+    ui.press(&cmd("/"));
+    assert!(ui.dialog_open(), "Cmd-/ shows the search syntax");
+    ui.press("escape");
+
+    // Without nu this warns instead of opening a terminal.
+    ui.press(&cmd("alt-t"));
+    assert!(!ui.dialog_open());
+}
+
+#[gpui_kit::test]
+fn file_shortcuts(cx: &mut TestAppContext) {
+    let fx = Fixture::new("file-keys");
+    let mut ui = Ui::open(cx, &fx.dir);
+    ui.press(&cmd("shift-n"));
+    assert!(fx.path("untitled folder").is_dir());
+    assert!(ui.dialog_open(), "a new folder opens Rename");
+    ui.type_text("Archive");
+    ui.press("enter");
+    assert!(!ui.dialog_open());
+    assert!(fx.path("Archive").is_dir());
+    assert_eq!(ui.selected(), ["Archive"]);
+
+    ui.select("notes.txt");
+    ui.press("f2");
+    assert!(ui.dialog_open());
+    ui.press("escape");
+    for key in [cmd("backspace"), "delete".to_string()] {
+        ui.press(&key);
+        assert!(ui.dialog_open(), "{key} asks before trashing");
+        ui.press("escape");
+    }
+    ui.press("space");
+    assert!(ui.read(|f| f.quick_look_is_open()));
+    ui.press(&cmd("y"));
+    assert!(!ui.read(|f| f.quick_look_is_open()));
+
+    ui.press(&cmd("w"));
+    let open = ui.cx.update(|cx| cx.windows().len());
+    assert_eq!(open, 0, "Cmd-W closes the window");
+}
+
+#[gpui_kit::test]
+fn type_into_the_search_field_and_down_arrow(cx: &mut TestAppContext) {
+    let fx = Fixture::new("search-down");
+    let mut ui = Ui::open(cx, &fx.dir);
+    ui.click("search");
+    ui.type_text("roadmap");
+    ui.press("down");
+    assert!(ui.files_focused());
+    assert_eq!(ui.selected(), ["Roadmap.md"]);
+    // Keys typed in the field edit text instead of moving the selection.
+    ui.click("search");
+    ui.press("left");
+    ui.press("backspace");
+    assert_eq!(ui.read(|f| f.query().to_string()), "roadmp");
 }

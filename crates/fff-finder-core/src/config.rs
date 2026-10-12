@@ -2,12 +2,12 @@
 //! platform config directory (`~/Library/Application Support/fffFinder` on
 //! macOS, `~/.config/fffFinder` on Linux, `%APPDATA%\fffFinder` on Windows).
 
-use std::path::{Path, PathBuf};
-
-use serde::{Deserialize, Serialize};
-
 use crate::kind::KindFilter;
 use crate::listing::SortOrder;
+use crate::terminals::{CUSTOM, Platform, TerminalSetting};
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 pub const APP_NAME: &str = "fffFinder";
 
@@ -64,7 +64,12 @@ pub struct Config {
     pub kind_filter: KindFilter,
     /// Maximum results shown for a search.
     pub result_limit: usize,
-    /// Terminal used for "Open in Nushell"; `None` picks a platform default.
+    /// The terminal "Open Nushell Here" uses, per operating system (`macos`,
+    /// `linux`, `windows`), so one settings file can carry a choice for each.
+    /// A missing entry picks one automatically.
+    pub terminals: BTreeMap<String, TerminalSetting>,
+    /// The older single terminal command; moved into `terminals` on load.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub terminal: Option<String>,
     /// Path to `nu`; `None` searches `PATH`.
     pub nu_path: Option<PathBuf>,
@@ -87,6 +92,7 @@ impl Default for Config {
             appearance: Appearance::System,
             kind_filter: KindFilter::Any,
             result_limit: 500,
+            terminals: BTreeMap::new(),
             terminal: None,
             nu_path: None,
             last_folder: None,
@@ -133,10 +139,37 @@ impl Config {
     }
 
     pub fn load_from(path: &Path) -> Config {
-        std::fs::read_to_string(path)
+        let mut config: Config = std::fs::read_to_string(path)
             .ok()
             .and_then(|text| serde_json::from_str(&text).ok())
+            .unwrap_or_default();
+        if let Some(command) = config.terminal.take().filter(|c| !c.trim().is_empty()) {
+            config
+                .terminals
+                .entry(Platform::current().key().into())
+                .or_insert(TerminalSetting {
+                    app: Some(CUSTOM.into()),
+                    command: Some(command),
+                });
+        }
+        config
+    }
+
+    /// This operating system's terminal setting.
+    pub fn terminal_setting(&self) -> TerminalSetting {
+        self.terminals
+            .get(Platform::current().key())
+            .cloned()
             .unwrap_or_default()
+    }
+
+    pub fn set_terminal_setting(&mut self, setting: TerminalSetting) {
+        let key = Platform::current().key().to_string();
+        if setting == TerminalSetting::default() {
+            self.terminals.remove(&key);
+        } else {
+            self.terminals.insert(key, setting);
+        }
     }
 
     pub fn save(&self) -> std::io::Result<()> {
@@ -162,13 +195,55 @@ mod tests {
     #[test]
     fn round_trips() {
         let path = std::env::temp_dir().join(format!("fff-finder-cfg-{}.json", std::process::id()));
-        let cfg = Config {
+        let mut cfg = Config {
             show_hidden: true,
             view_mode: ViewMode::Gallery,
             ..Default::default()
         };
+        cfg.terminals.insert(
+            "windows".into(),
+            TerminalSetting {
+                app: Some("windows-terminal".into()),
+                command: None,
+            },
+        );
         cfg.save_to(&path).unwrap();
         assert_eq!(Config::load_from(&path), cfg);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn keeps_a_terminal_per_system_and_moves_the_old_command() {
+        let path =
+            std::env::temp_dir().join(format!("fff-finder-cfg3-{}.json", std::process::id()));
+        std::fs::write(
+            &path,
+            r#"{"terminal": "foot -D {dir} {nu}", "terminals": {"plan9": {"app": "rio"}}}"#,
+        )
+        .unwrap();
+        let mut cfg = Config::load_from(&path);
+        assert_eq!(cfg.terminal, None);
+        assert_eq!(
+            cfg.terminal_setting(),
+            TerminalSetting {
+                app: Some(CUSTOM.into()),
+                command: Some("foot -D {dir} {nu}".into())
+            }
+        );
+        cfg.set_terminal_setting(TerminalSetting {
+            app: Some("ghostty".into()),
+            command: Some("foot -D {dir} {nu}".into()),
+        });
+        cfg.save_to(&path).unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("\"terminal\""), "{text}");
+        assert!(text.contains("\"plan9\""), "other systems are kept: {text}");
+        assert_eq!(
+            Config::load_from(&path).terminal_setting().app.as_deref(),
+            Some("ghostty")
+        );
+        cfg.set_terminal_setting(TerminalSetting::default());
+        assert!(!cfg.terminals.contains_key(Platform::current().key()));
         std::fs::remove_file(path).unwrap();
     }
 

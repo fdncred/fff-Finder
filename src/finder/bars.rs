@@ -1,8 +1,11 @@
 //! Search scope bar, path bar, status bar, and the picker's choose bar.
 
-use std::path::PathBuf;
-
+use super::{Finder, SearchScope, group_digits};
+use crate::actions::*;
+use crate::model::Location;
+use crate::theme::palette;
 use fff_finder_core::{KindFilter, ViewMode, places};
+use gpui_kit::TestSupportExt as _;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
@@ -13,11 +16,7 @@ use gpui_kit::component::{
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-
-use super::{Finder, SearchScope, group_digits};
-use crate::actions::*;
-use crate::model::Location;
-use crate::theme::palette;
+use std::path::PathBuf;
 
 impl Finder {
     pub(super) fn render_scope_bar(
@@ -76,7 +75,8 @@ impl Finder {
                 )
                 .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.set_scope(SearchScope::Computer, cx)
-                })),
+                }))
+                .test_support(),
             )
             .when_some(folder_name, |this, name| {
                 this.child(
@@ -87,16 +87,27 @@ impl Finder {
                     )
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.set_scope(SearchScope::Folder, cx)
-                    })),
+                    }))
+                    .test_support(),
                 )
             })
             .child(div().w(px(1.)).h(px(16.)).bg(border))
-            .child(chip("by-name", "Name".into(), !contents).on_click(
-                cx.listener(|this, _: &ClickEvent, _, cx| this.set_search_contents(false, cx)),
-            ))
-            .child(chip("by-contents", "Contents".into(), contents).on_click(
-                cx.listener(|this, _: &ClickEvent, _, cx| this.set_search_contents(true, cx)),
-            ))
+            .child(
+                chip("by-name", "Name".into(), !contents)
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.set_search_contents(false, cx)
+                    }))
+                    .test_support(),
+            )
+            .child(
+                chip("by-contents", "Contents".into(), contents)
+                    .on_click(
+                        cx.listener(|this, _: &ClickEvent, _, cx| {
+                            this.set_search_contents(true, cx)
+                        }),
+                    )
+                    .test_support(),
+            )
             .child(div().flex_1())
             .child(
                 div()
@@ -109,7 +120,10 @@ impl Finder {
                             .with_size(px(14.))
                             .text_color(muted),
                     )
-                    .on_click(|_, window, cx| window.dispatch_action(Box::new(SearchHelp), cx)),
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        this.search_help(&SearchHelp, window, cx)
+                    }))
+                    .test_support(),
             )
             .child(
                 Button::new("kind")
@@ -202,14 +216,15 @@ impl Finder {
                                 .text_color(if is_last { fg } else { muted })
                                 .child(name),
                         )
-                        .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+                        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                             let path = path.clone();
                             if is_last && is_file {
                                 this.reveal_in_place(&path, window, cx);
-                            } else if event.click_count() >= 1 {
+                            } else {
                                 this.navigate(Location::Folder(path), window, cx);
                             }
-                        })),
+                        }))
+                        .test_support(),
                 );
             }
         }
@@ -343,7 +358,9 @@ impl Finder {
                         "Choose".to_string()
                     })
                     .disabled(count == 0)
-                    .on_click(|_, window, cx| window.dispatch_action(Box::new(Choose), cx)),
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        this.choose(&Choose, window, cx)
+                    })),
             )
     }
 }

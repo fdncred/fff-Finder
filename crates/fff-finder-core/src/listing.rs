@@ -1,11 +1,9 @@
 //! Folder listing and sorting.
 
+use crate::entry::FileEntry;
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::path::Path;
-
-use serde::{Deserialize, Serialize};
-
-use crate::entry::FileEntry;
 
 /// Read a directory. Unreadable children are skipped; an unreadable folder is an error.
 pub fn list_dir(dir: &Path, show_hidden: bool) -> std::io::Result<Vec<FileEntry>> {

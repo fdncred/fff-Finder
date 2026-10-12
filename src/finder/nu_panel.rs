@@ -1,8 +1,11 @@
 //! The Nushell pipeline panel: run a pipeline over the selected files (or
 //! everything shown) and see the result as a table.
 
-use std::ops::Range;
-
+use super::Finder;
+use crate::actions::ToggleNuPanel;
+use crate::nushell::NuOutput;
+use crate::theme::palette;
+use gpui_kit::TestSupportExt as _;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::Input;
@@ -11,11 +14,7 @@ use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-
-use super::Finder;
-use crate::actions::ToggleNuPanel;
-use crate::nushell::NuOutput;
-use crate::theme::palette;
+use std::ops::Range;
 
 const EXAMPLES: [&str; 4] = [
     "where size > 1mb | sort-by size --reverse",
@@ -82,7 +81,9 @@ impl Finder {
                     .ghost()
                     .icon(IconName::Close)
                     .tooltip("Close (Ctrl-`)")
-                    .on_click(|_, window, cx| window.dispatch_action(Box::new(ToggleNuPanel), cx)),
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        this.toggle_nu_panel(&ToggleNuPanel, window, cx)
+                    })),
             );
 
         let body: AnyElement = match &self.nu_result {
@@ -117,6 +118,7 @@ impl Finder {
                                     this.run_nu_pipeline(window, cx);
                                 });
                             })
+                            .test_support()
                     }))
                     .into_any_element()
             }
@@ -125,7 +127,7 @@ impl Finder {
                 if let Some(error) = &run.error {
                     col = col.child(
                         div()
-                            .id("nu-error")
+                            .id("nu-error-scroll")
                             .flex_shrink_0()
                             .max_h(px(140.))
                             .overflow_y_scrollbar()
@@ -136,7 +138,9 @@ impl Finder {
                             .text_color(theme.danger)
                             .font_family(theme.mono_font_family.clone())
                             .text_size(px(11.5))
-                            .child(error.clone()),
+                            // The scrollbar wrapper hides its own element from UI
+                            // tests, so the text inside is the observed one.
+                            .child(div().id("nu-error").test_support().child(error.clone())),
                     );
                 }
                 col = col.child(match &run.output {
@@ -148,14 +152,14 @@ impl Finder {
                         .into_any_element(),
                     NuOutput::Empty => div().into_any_element(),
                     NuOutput::Text(text) => div()
-                        .id("nu-text")
+                        .id("nu-text-scroll")
                         .flex_1()
                         .min_h_0()
                         .overflow_y_scrollbar()
                         .p(px(12.))
                         .font_family(theme.mono_font_family.clone())
                         .text_size(px(12.))
-                        .child(text.clone())
+                        .child(div().id("nu-text").test_support().child(text.clone()))
                         .into_any_element(),
                     NuOutput::Table { columns, rows } => {
                         self.render_nu_table(columns, rows.len(), cx)

@@ -1,15 +1,13 @@
 //! Context menus for items and for empty space.
 
-use std::path::{Path, PathBuf};
-
+use super::Finder;
+use crate::actions::*;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::IconName;
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-
-use super::Finder;
-use crate::actions::*;
+use std::path::{Path, PathBuf};
 
 pub fn reveal_label() -> &'static str {
     if cfg!(target_os = "macos") {

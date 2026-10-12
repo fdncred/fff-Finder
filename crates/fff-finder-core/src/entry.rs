@@ -1,11 +1,9 @@
 //! A file or folder as shown in the browser and in search results.
 
+use crate::kind::{self, FileKind};
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
-
-use serde::{Deserialize, Serialize};
-
-use crate::kind::{self, FileKind};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FileEntry {

@@ -23,7 +23,9 @@ a native macOS app. fffFinder targets macOS, Linux, and Windows from one codebas
   search to the current folder, a kind (folder, document, image, movie, audio,
   code, archive), an extension, a glob, or a git status.
 - Browses folders in four views (icons, list, columns, gallery), with a sidebar,
-  back and forward history, a clickable path bar, and a status bar.
+  back and forward history, a clickable path bar, and a status bar. Gallery
+  shows a large preview of the selected item above a strip of everything in
+  the folder; arrow keys move along the strip.
 - Previews files in the gallery, the column view, and Quick Look (Space).
   Images render as images. CSV, JSON, TOML, YAML, SQLite and other structured
   files open through Nushell's `open` and show as tables.
@@ -67,8 +69,9 @@ fff keybindings
 **Inside the app**, the Nushell panel (Ctrl+`) runs a pipeline with the selected
 files, or everything shown, as `$in`. Each row has the same columns the plugin
 returns, so `where size > 1mb | sort-by modified` works as you'd expect, and the
-result shows as a table. "Open Nushell Here" opens a terminal running `nu` in
-the folder, and "Copy as Nushell List" copies the selection as NUON.
+result shows as a table. "Open Nushell Here" opens `nu` in the folder, in the
+terminal you choose in Settings (see [Terminal](#terminal)), and "Copy as
+Nushell List" copies the selection as NUON.
 
 ![Nushell pipeline panel](docs/images/nushell-dark.png)
 
@@ -156,8 +159,46 @@ Settings live in `settings.json` in the platform config folder
 (`~/Library/Application Support/fffFinder` on macOS, `~/.config/fffFinder` on
 Linux, `%APPDATA%\fffFinder` on Windows). Set `FFFFINDER_CONFIG_DIR` to use a
 different folder. The Settings window edits search locations (including "Index
-Entire Disk"), appearance, hidden files, and the terminal command used by "Open
-Nushell Here", where `{dir}` and `{nu}` are replaced.
+Entire Disk"), appearance, hidden files, and the terminal.
+
+### Terminal
+
+Settings lists the terminals installed on the computer, and "Open Nushell Here"
+uses the one you pick. "Try It" opens it in the current folder. "Automatic"
+uses the first of these that is installed:
+
+- macOS: Ghostty, iTerm2, WezTerm, kitty, Alacritty, Rio, then Terminal.
+- Windows: Windows Terminal, WezTerm, Alacritty, then a plain console window.
+- Linux: `$TERMINAL` if it is set, then Ghostty, WezTerm, kitty, Alacritty, Rio,
+  foot, GNOME Terminal, Konsole, Xfce Terminal, then any other terminal.
+
+The choice is saved per operating system, so one settings file can say Ghostty
+on macOS and Windows Terminal on Windows:
+
+```json
+"terminals": {
+  "macos": { "app": "ghostty" },
+  "windows": { "app": "windows-terminal" },
+  "linux": { "app": "custom", "command": "foot --working-directory={dir} {nu}" }
+}
+```
+
+"Custom Command" runs any command. `{dir}` becomes the folder and `{nu}` the
+path to `nu`, and quotes group words that contain spaces.
+
+Terminals are found the way each system records them. On macOS fffFinder reads
+the `Info.plist` of every app in the Applications folders and of every app the
+search index finds elsewhere, and an app that adds a "New … Window Here"
+service and opens shell scripts counts even if fffFinder doesn't know it. On
+Linux it reads `.desktop` entries in the `TerminalEmulator` category, programs
+on `PATH`, and AppImages in the index. Flatpak terminals are skipped because
+the sandbox can't see the host's `nu`. On Windows it checks the install
+folders, `PATH`, and the index, which finds portable and Scoop installs.
+
+Ghostty on macOS opens a new window in the running app through AppleScript, and
+macOS asks once whether fffFinder may control Ghostty. If Ghostty isn't
+running, or you decline, a new Ghostty instance opens instead. fffFinder avoids
+Ghostty's `-e` flag because Ghostty asks for confirmation every time it is used.
 
 ## How it's built
 
@@ -184,11 +225,47 @@ nu scripts/screenshots.nu            # regenerate docs/images (macOS)
 cargo run -- ~/src --query readme    # run from source
 ```
 
-`tests/finder.rs` drives the real window headlessly: listing, navigation,
-search, keyboard selection, the column view, copying paths, toolbar menus, and
-right-click menus. The screenshot
-example renders the same window with Metal, so a UI change can be checked
-without opening it.
+The UI tests open the real window headlessly and use it with mouse clicks and
+key presses:
+
+- `tests/controls.rs` clicks every control and checks what each click changed:
+  toolbar buttons and menus, the search field and scope bar, sidebar rows, the
+  path bar, the icon-size slider, list headers, items in all four views,
+  context menus, every button and field in every dialog, the Nushell panel,
+  and the picker bar.
+- `tests/finder.rs` presses every keyboard shortcut except Quit and New Window,
+  which belong to the app rather than the window.
+
+A step that runs longer than 20 seconds fails the run and names the step, so a
+hang shows up as a failure instead of a `cargo test` that never ends. Opening a
+file or showing it in Finder is recorded instead of performed, and nothing is
+moved to the Trash.
+
+`examples/drive.rs` replays the same kind of steps in the visible window
+against your real index and prints the window's state after each one. It
+never writes your settings.
+
+```nu
+cargo run --example drive -- key:cmd-, click:show-hidden key:escape key:cmd-shift-g 'type:~/src' key:enter
+```
+
+`examples/screenshot.rs` renders the window to a PNG with Metal, so a UI change
+can be checked without opening it.
+
+`examples/terminals.rs` lists the terminals found and what Automatic picks.
+With `--verify` it opens each one with a short script in place of `nu` that
+records the folder it started in, then closes it. Terminal and iTerm2 keep
+their windows open, so it checks them only when you name them.
+
+```nu
+cargo run --example terminals -- --verify
+```
+
+If the window ever stops responding, run it with `FFFFINDER_WATCHDOG=1`. After
+three seconds without a response it saves every thread's stack to
+`hang-<time>.txt` in the data folder (`~/Library/Application Support/fffFinder`
+on macOS) and prints the path. Other platforms print the process ID to attach
+a debugger to.
 
 ## Limits
 
