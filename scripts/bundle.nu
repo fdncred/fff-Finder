@@ -13,7 +13,7 @@ def main [
     --skip-build # Package existing release binaries
 ] {
     let root = repo-root
-    let target = if $skip_build { $root | path join target release } else { build }
+    let target = if $skip_build { target-dir | path join release } else { build }
     let dist = $root | path join dist
     mkdir $dist
     match $nu.os-info.name {
@@ -41,8 +41,7 @@ def bundle-macos [root: path, target: path, dist: path]: nothing -> path {
 # Render the SVG with Quick Look, then build an iconset with sips and iconutil.
 def make-icns [svg: path, out: path] {
     let work = mktemp --directory
-    ^qlmanage -t -s 1024 -o $work $svg | ignore
-    let png = $work | path join $'($svg | path basename).png'
+    let png = render-svg $svg $work
     let iconset = $work | path join fff-Finder.iconset
     mkdir $iconset
     for size in [16 32 128 256 512] {

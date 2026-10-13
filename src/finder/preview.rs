@@ -5,13 +5,14 @@
 use super::views::file_icon;
 use super::{AppState, Finder};
 use crate::actions::{
-    PreviewTextBigger, PreviewTextReset, PreviewTextSmaller, QUICK_LOOK, QuickLook,
+    MoveDown, MoveLeft, MoveRight, MoveUp, PreviewTextBigger, PreviewTextReset, PreviewTextSmaller,
+    QUICK_LOOK, QuickLook,
 };
 use crate::nushell::{self, NuOutput};
 use crate::theme::palette;
 use crate::theme::ui;
 use fff_Finder_core::config::{DEFAULT_PREVIEW_FONT_SIZE, FONT_SIZE_RANGE};
-use fff_Finder_core::{FileEntry, FileKind, format};
+use fff_Finder_core::{FileEntry, FileKind, ViewMode, format};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::dialog::DialogFooter;
 use gpui_kit::component::scroll::ScrollableElement as _;
@@ -252,6 +253,10 @@ impl Finder {
                         .on_action(text_size_handler::<PreviewTextBigger>(&view, Some(1.)))
                         .on_action(text_size_handler::<PreviewTextSmaller>(&view, Some(-1.)))
                         .on_action(text_size_handler::<PreviewTextReset>(&view, None))
+                        .on_action(step_handler::<MoveUp>(&view, 0, -1))
+                        .on_action(step_handler::<MoveDown>(&view, 0, 1))
+                        .on_action(step_handler::<MoveLeft>(&view, -1, 0))
+                        .on_action(step_handler::<MoveRight>(&view, 1, 0))
                         .h(ui(540.))
                         .child(render_preview_large(finder, &entry, cx)),
                 )
@@ -284,6 +289,51 @@ impl Finder {
                     close_view.update(cx, |this, _| this.quick_look_open = false);
                 })
         });
+    }
+
+    /// Quick Look's arrow keys, as in Finder. With several items selected
+    /// they step through those and keep the selection. Otherwise they move
+    /// the selection the way the view does, except that in the list and in
+    /// columns Left and Right go to the previous and next item. Quick Look
+    /// then shows the new item.
+    fn quick_look_step(
+        &mut self,
+        dx: isize,
+        dy: isize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let view = self.effective_view();
+        if view != ViewMode::Columns && self.selection.len() > 1 {
+            self.selection.cycle_cursor(dx + dy);
+            if let Some(ix) = self.selection.cursor() {
+                self.scroll_to(ix);
+            }
+            cx.notify();
+        } else if matches!(view, ViewMode::List | ViewMode::Columns) {
+            self.move_selection(0, dx + dy, false, window, cx);
+        } else {
+            self.move_selection(dx, dy, false, window, cx);
+        }
+        if let Some(entry) = self.primary_entry() {
+            self.ensure_preview(&entry, cx);
+        }
+        // Selecting in a column focuses the files; keep the keys coming here.
+        self.quick_look_focus.focus(window, cx);
+    }
+}
+
+/// Moves through the items from Quick Look by `dx` and `dy`.
+fn step_handler<A: Action>(
+    view: &Entity<Finder>,
+    dx: isize,
+    dy: isize,
+) -> impl Fn(&A, &mut Window, &mut App) + 'static {
+    let view = view.clone();
+    move |_, window, cx| {
+        view.update(cx, |this, cx| this.quick_look_step(dx, dy, window, cx));
+        // The dialog is drawn by the window's root, not by the Finder view.
+        window.refresh();
     }
 }
 

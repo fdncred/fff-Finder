@@ -6,7 +6,11 @@ use fff_Finder::args;
 fn main() {
     match args::parse(std::env::args_os().skip(1)) {
         Ok(args::Parsed::Run(args)) if args.detach && !args.pick => detach(),
-        Ok(args::Parsed::Run(args)) => fff_Finder::run(args),
+        Ok(args::Parsed::Run(args)) => {
+            // Before GPUI, or any other thread, starts.
+            fff_Finder::graphics::prepare(args.software_rendering);
+            fff_Finder::run(args)
+        }
         Ok(args::Parsed::Help) => print!("{}", args::USAGE),
         Ok(args::Parsed::Version) => println!("fff-Finder {}", env!("CARGO_PKG_VERSION")),
         Err(err) => {

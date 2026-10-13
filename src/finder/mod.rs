@@ -971,6 +971,8 @@ impl Finder {
         if self.scope != scope {
             self.scope = scope;
             self.run_search(false, cx);
+            // The toolbar shows the scope even when nothing is searched.
+            cx.notify();
         }
     }
 
@@ -1098,6 +1100,14 @@ impl Finder {
     }
 
     // ----- selection ----------------------------------------------------------
+
+    /// Close this window; a picker window cancels the pick.
+    pub(super) fn close_window(&self, window: &mut Window) {
+        if self.picker.is_some() {
+            crate::picker::cancel();
+        }
+        window.remove_window();
+    }
 
     pub fn focus_files(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.files_focus.focus(window, cx);
@@ -2229,13 +2239,7 @@ impl Render for Finder {
                     .collect();
                 this.open_in_editor(paths, window, cx);
             }))
-            .on_action(cx.listener(|this, _: &CloseWindow, window, cx| {
-                if this.picker.is_some() {
-                    crate::picker::cancel();
-                }
-                let _ = cx;
-                window.remove_window();
-            }))
+            .on_action(cx.listener(|this, _: &CloseWindow, window, _| this.close_window(window)))
             .on_action(
                 cx.listener(|this, _: &ViewIcons, _, cx| this.set_view_mode(ViewMode::Icons, cx)),
             )

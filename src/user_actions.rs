@@ -273,10 +273,18 @@ mod tests {
         let NuOutput::Text(links) = run("markdown links", &["one/notes (1) [draft]#2.md"]) else {
             panic!("expected text");
         };
-        let url = dir.join("one/notes%20%281%29%20%5Bdraft%5D%232.md");
+        // Windows paths become file:///C:/Users/..., with forward slashes.
+        let mut url = dir
+            .join("one/notes%20%281%29%20%5Bdraft%5D%232.md")
+            .display()
+            .to_string()
+            .replace('\\', "/");
+        if !url.starts_with('/') {
+            url.insert(0, '/');
+        }
         assert_eq!(
             links,
-            format!(r"- [notes (1) \[draft\]#2.md](file://{})", url.display())
+            format!(r"- [notes (1) \[draft\]#2.md](file://{url})")
         );
 
         // A [ ] folder is searched, and empty files aren't duplicates.
@@ -284,7 +292,10 @@ mod tests {
             run("find duplicates", &["Photos [2024]", "one/a.txt", "two"]),
             "path",
         );
-        let mut names: Vec<&str> = paths.iter().filter_map(|p| p.rsplit('/').next()).collect();
+        let mut names: Vec<&str> = paths
+            .iter()
+            .filter_map(|p| p.rsplit(['/', '\\']).next())
+            .collect();
         names.sort();
         assert_eq!(names, ["a.txt", "b.txt", "c.txt"]);
 

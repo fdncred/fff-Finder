@@ -10,6 +10,7 @@ pub mod ansi;
 pub mod args;
 pub mod assets;
 pub mod finder;
+pub mod graphics;
 pub mod macos;
 pub mod model;
 pub mod nu_env;
@@ -274,6 +275,7 @@ pub fn open_window(
     let options = window_options(title.clone(), cx);
     let result = gpui_kit::open_window(options, cx, move |window, cx| {
         window.set_window_title(&title);
+        graphics::report(window);
         if picker.is_some() {
             window.on_window_should_close(cx, |_, _| picker::cancel());
         }

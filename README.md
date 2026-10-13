@@ -98,8 +98,11 @@ http get --unix-socket $sock 'http://localhost/v1/find?query=readme&limit=5'
 You need Rust 1.92 or newer and Nushell 0.116, plus:
 
 - macOS: Xcode Command Line Tools (`xcode-select --install`).
-- Linux: `gcc g++ clang libfontconfig-dev libwayland-dev libxkbcommon-x11-dev libx11-xcb-dev libssl-dev libzstd-dev`, plus a Vulkan driver.
+- Linux: `gcc g++ clang pkg-config libfontconfig-dev libwayland-dev libxkbcommon-x11-dev libx11-xcb-dev libssl-dev libzstd-dev`, plus a Vulkan driver.
 - Windows: Visual Studio 2022 Build Tools with the C++ workload.
+
+[Building](docs/manual.md#building) in the manual has the Fedora and Arch
+packages, and covers WSL2 and virtual machines without a GPU.
 
 ```nu
 nu scripts/install.nu            # release build into ~/.cargo/bin, or --dest ~/bin
@@ -166,7 +169,7 @@ src/macos.rs             macOS integration through AppKit
 nu/fff.nu                the `fff` Nushell module
 assets/actions.nu        the starter Nushell actions
 docs/                    the manual, the socket protocol, and screenshots
-scripts/*.nu             build, install, bundle, screenshots
+scripts/*.nu             build, install, bundle, screenshots, Windows icon
 examples/                headless screenshots, a window driver, and diagnostics
 tests/                   UI, socket, and `fff` module tests
 ```

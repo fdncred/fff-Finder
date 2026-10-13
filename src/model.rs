@@ -176,6 +176,22 @@ impl Selection {
         }
     }
 
+    /// Move the cursor `step` selected items along, wrapping around, and keep
+    /// the selection: Quick Look steps through several items this way. A
+    /// cursor outside the selection counts as the first selected item.
+    pub fn cycle_cursor(&mut self, step: isize) {
+        let items: Vec<usize> = self.items.iter().copied().collect();
+        if items.is_empty() {
+            return;
+        }
+        let pos = self
+            .cursor
+            .and_then(|cur| items.iter().position(|&ix| ix == cur))
+            .unwrap_or(0);
+        let next = (pos as isize + step).rem_euclid(items.len() as isize) as usize;
+        self.cursor = Some(items[next]);
+    }
+
     /// Keep the same items selected after the list was re-sorted or refreshed.
     pub fn remap(&mut self, old: &[PathBuf], new: &[PathBuf]) {
         let index_of = |path: &PathBuf| new.iter().position(|p| p == path);
@@ -228,6 +244,28 @@ mod tests {
         assert_eq!(s.cursor(), Some(3));
         s.move_by(-1, true, 4);
         assert_eq!(s.indices().collect::<Vec<_>>(), [2, 3]);
+    }
+
+    #[test]
+    fn cycle_cursor_wraps_within_the_selection() {
+        let mut s = Selection::default();
+        s.select_only(1);
+        s.toggle(4);
+        s.toggle(6);
+        s.cycle_cursor(1);
+        assert_eq!(s.cursor(), Some(1), "wraps from the last to the first");
+        s.cycle_cursor(-1);
+        assert_eq!(s.cursor(), Some(6), "and back");
+        s.cycle_cursor(-1);
+        assert_eq!(s.cursor(), Some(4));
+        assert_eq!(s.indices().collect::<Vec<_>>(), [1, 4, 6]);
+        s.toggle(4);
+        s.cycle_cursor(1);
+        assert_eq!(
+            s.cursor(),
+            Some(6),
+            "a deselected cursor counts as the first"
+        );
     }
 
     #[test]

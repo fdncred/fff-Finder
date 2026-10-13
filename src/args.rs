@@ -1,4 +1,5 @@
-//! Command line: `fff-Finder [PATH] [--query TEXT] [--pick] [--multiple] [--detach]`.
+//! Command line: `fff-Finder [PATH] [--query TEXT] [--pick] [--multiple] [--detach]
+//! [--software-rendering]`.
 //!
 //! `--pick` turns the window into a chooser for scripts (used by `fff pick`):
 //! choosing prints a JSON array of absolute paths and exits 0; cancelling exits 1.
@@ -14,6 +15,8 @@ pub struct Args {
     pub multiple: bool,
     /// Start in the background and return at once (used by `fff gui`).
     pub detach: bool,
+    /// Draw with Mesa's software renderers instead of a GPU (Linux).
+    pub software_rendering: bool,
 }
 
 pub const USAGE: &str = "\
@@ -29,6 +32,8 @@ Options:
       --pick         Choose files and print them as JSON to stdout
       --multiple     With --pick, allow choosing several items
       --detach       Start in the background and return right away
+      --software-rendering
+                     Draw without a GPU (Linux)
   -h, --help         Show this help
   -V, --version      Show the version
 ";
@@ -51,6 +56,7 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Parsed, String>
             "--pick" => out.pick = true,
             "--multiple" | "-m" => out.multiple = true,
             "--detach" => out.detach = true,
+            "--software-rendering" => out.software_rendering = true,
             "-q" | "--query" => {
                 let value = iter.next().ok_or("--query needs a value")?;
                 out.query = Some(value.to_string_lossy().into_owned());
@@ -93,8 +99,18 @@ mod tests {
                 pick: true,
                 multiple: true,
                 detach: false,
+                software_rendering: false,
             })
         );
+    }
+
+    #[test]
+    fn parses_software_rendering() {
+        let Parsed::Run(args) = run(&["--software-rendering", "/tmp"]).unwrap() else {
+            panic!("expected a run");
+        };
+        assert!(args.software_rendering);
+        assert_eq!(args.path, Some("/tmp".into()));
     }
 
     #[test]

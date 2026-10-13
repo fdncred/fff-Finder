@@ -14,7 +14,7 @@ def main [
     let demo = make-demo
     cd $root
     ^cargo build --example screenshot
-    let tool = $root | path join target debug examples screenshot
+    let tool = target-dir | path join debug examples screenshot
     let shots = [
         {file: icons-dark.png, args: [--view icons --dark]}
         {file: list-light.png, args: [--view list --light --select 1]}
