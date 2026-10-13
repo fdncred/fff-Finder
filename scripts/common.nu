@@ -12,13 +12,25 @@ export def exe-suffix []: nothing -> string {
     if $nu.os-info.name == 'windows' { '.exe' } else { '' }
 }
 
+# Cargo's target directory. Cargo works it out, so CARGO_TARGET_DIR and
+# `build.target-dir` in a Cargo config are respected.
+export def target-dir []: nothing -> path {
+    cd (repo-root)
+    ^cargo metadata --format-version 1 --no-deps | from json | get target_directory
+}
+
 # Build the workspace; returns the target directory holding the binaries.
 export def build [--debug]: nothing -> path {
-    let root = repo-root
     let args = if $debug { [build --workspace] } else { [build --release --workspace] }
-    cd $root
+    cd (repo-root)
     ^cargo ...$args
-    $root | path join target (if $debug { 'debug' } else { 'release' })
+    target-dir | path join (if $debug { 'debug' } else { 'release' })
+}
+
+# Render an SVG to a 1024-pixel PNG in `dir` with Quick Look (macOS).
+export def render-svg [svg: path, dir: path]: nothing -> path {
+    ^qlmanage -t -s 1024 -o $dir $svg | ignore
+    $dir | path join $'($svg | path basename).png'
 }
 
 # Version from the workspace manifest.

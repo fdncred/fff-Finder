@@ -85,17 +85,22 @@ def query-params [pairs: record]: nothing -> list {
 }
 
 # The fff-Finder program: $env.FFF_FINDER_BIN, PATH, the app bundle, or a
-# build in this repository.
+# build in this repository ($env.CARGO_TARGET_DIR, then target/).
 def app-binary []: nothing -> path {
     let name = if $nu.os-info.name == 'windows' { 'fff-Finder.exe' } else { 'fff-Finder' }
     let repo = $MODULE_DIR | path dirname
+    # A relative CARGO_TARGET_DIR is taken from the repository root.
+    let builds = [$env.CARGO_TARGET_DIR? 'target']
+        | compact --empty
+        | each {|dir| $repo | path join $dir }
+        | each {|dir| [($dir | path join release $name) ($dir | path join debug $name)] }
+        | flatten
     let candidates = [
         $env.FFF_FINDER_BIN?
         (which $name | get 0?.path)
         '/Applications/fff-Finder.app/Contents/MacOS/fff-Finder'
         ($nu.home-dir | path join Applications fff-Finder.app Contents MacOS fff-Finder)
-        ($repo | path join target release $name)
-        ($repo | path join target debug $name)
+        ...$builds
     ]
     let found = $candidates | compact | where {|p| ($p | path exists) and ($p | path type) == 'file' } | get 0?
     if $found == null {

@@ -1,9 +1,10 @@
 # fff-Finder manual
 
 This manual describes everything fff-Finder does, control by control. The
-[README](../README.md) covers installing it, [Development](#development)
-covers building and testing it, and [protocol.md](protocol.md) documents the
-local socket that the `fff` Nushell module and other tools use.
+[README](../README.md) covers installing it, [Building](#building) lists what
+each platform needs to build it, [Development](#development) covers testing
+it, and [protocol.md](protocol.md) documents the local socket that the `fff`
+Nushell module and other tools use.
 
 Keyboard shortcuts are written with Cmd. On Linux and Windows, use Ctrl
 instead.
@@ -39,6 +40,7 @@ instead.
 - [Files, folders, and environment variables](#files-folders-and-environment-variables)
 - [Appearance](#appearance)
 - [Names](#names)
+- [Building](#building)
 - [Development](#development)
 
 ## Starting fff-Finder
@@ -144,6 +146,7 @@ From left to right:
 | Sort and View Options | The sort menu. See [Sorting and hidden files](#sorting-and-hidden-files). |
 | Nushell | The Nushell menu. See [Menus](#menus). |
 | Actions (…) | File commands and dialogs. See [Menus](#menus). |
+| Search Only in "Folder name" | Searches only the folder the window shows, and everything inside it, instead of every search location. Click it again to search This Computer. It's the same choice as the scope bar's, so you can make it before you type. It's off in Recents and other results that aren't one folder. |
 | Search field | Search as you type. The clear button ends the search. |
 
 ## Sidebar
@@ -252,6 +255,10 @@ Type in the search field (Cmd+F) to search. Searches start 50 ms after you
 stop typing. Return searches right away and moves into the results, selecting
 the first one. Down Arrow in the search field also moves into the results.
 
+To search one part of the tree, open its folder and turn on **Search Only in
+"Folder name"**, the folder button left of the search field, before or while
+you search.
+
 While a search is active, the scope bar shows:
 
 | Control | What it does |
@@ -346,6 +353,16 @@ comments uncolored, so fff-Finder draws comments in the theme's secondary
 Space or Cmd+Y opens Quick Look for the selected item, and pressing either
 again closes it. Quick Look shows the item's icon and name, a large preview,
 and its kind, size, and modification date.
+
+The arrow keys move to other items while Quick Look stays open, as in Finder:
+
+- With one item selected, they move the selection the way they do in the
+  view, and Quick Look shows the new item. In the icon grid, Up and Down move
+  by row. In the list and in columns, Left and Right go to the previous and
+  next item, so they step through a folder of images the same way in every
+  view. In columns they stay in the current column.
+- With several items selected, they step through just those items, wrapping
+  around at the ends, and the selection stays as it is.
 
 - **Show in Finder** (Show in Explorer, Show in File Manager) reveals the item
   and keeps Quick Look open.
@@ -742,6 +759,7 @@ Cmd on macOS, Ctrl elsewhere.
 | Keys | Action |
 | --- | --- |
 | Space, Cmd+Y | Close Quick Look |
+| Up, Down, Left, Right | Previous or next item (see [Quick Look](#quick-look)) |
 | Cmd+=, Cmd++ | Bigger preview text |
 | Cmd+- | Smaller preview text |
 | Cmd+0 | Reset the preview text size |
@@ -979,6 +997,7 @@ holds:
 | `FFF_FINDER_DATA_DIR` | Use another data folder, for the app and for the `fff` module. |
 | `FFF_FINDER_WATCHDOG=1` | When the window stops responding for three seconds, save every thread's stack to `hang-<time>.txt` in the data folder (with `sample` on macOS) and print where. Other systems print the process ID to attach a debugger to. |
 | `FFF_FINDER_BIN` | Where the `fff` module finds the app. |
+| `FFF_FINDER_SOFTWARE_RENDERING=1` | On Linux, draw with Mesa's software renderers and skip the GPU drivers. See [Without a GPU](#without-a-gpu-wsl2-and-virtual-machines). |
 | `TERMINAL` | On Linux, the terminal Automatic prefers. |
 
 The older `FFFFINDER_CONFIG_DIR`, `FFFFINDER_DATA_DIR`, and
@@ -1011,6 +1030,88 @@ The app, its bundle, and its crates are named fff-Finder: the packages are
 `fff-Finder` and `fff-Finder-core`, and Rust code refers to them as
 `fff_Finder` and `fff_Finder_core`, because Rust identifiers can't contain
 `-`. Environment variables stay uppercase, as `FFF_FINDER_*`.
+
+## Building
+
+You need Rust 1.92 or newer, Nushell 0.116 for the scripts, and each
+platform's build tools and libraries below.
+
+### macOS
+
+Install the Xcode Command Line Tools with `xcode-select --install`. Full
+Xcode isn't needed. `scripts/bundle.nu` also uses `qlmanage`, `sips`,
+`iconutil`, and `codesign`, which come with macOS.
+
+### Linux
+
+On Debian and Ubuntu, these are the packages CI builds with on Ubuntu 24.04:
+
+```sh
+sudo apt install gcc g++ clang pkg-config libfontconfig-dev libwayland-dev \
+  libxkbcommon-x11-dev libx11-xcb-dev libssl-dev libzstd-dev libvulkan1
+```
+
+On Fedora and Arch, these should be the same packages, but nobody has tested
+them yet:
+
+```sh
+sudo dnf install gcc gcc-c++ clang pkgconf-pkg-config fontconfig-devel wayland-devel \
+  libxkbcommon-x11-devel libX11-devel libxcb-devel openssl-devel libzstd-devel vulkan-loader
+sudo pacman -S --needed base-devel clang fontconfig wayland libxkbcommon-x11 libx11 \
+  libxcb openssl zstd vulkan-icd-loader
+```
+
+To run fff-Finder you also need a Vulkan or OpenGL driver. Mesa's drivers
+(`mesa-vulkan-drivers` on Debian, Ubuntu, and Fedora; `vulkan-radeon` or
+`vulkan-intel` on Arch) cover AMD and Intel GPUs, and NVIDIA's driver brings
+its own. Desktop installs usually have one already.
+
+### Windows
+
+Install the Visual Studio 2022 Build Tools with the "Desktop development with
+C++" workload, which includes the MSVC compiler and the Windows SDK. The build
+uses the SDK's resource compiler, `rc.exe`, to put the app icon into
+`fff-Finder.exe`, so Explorer, the taskbar, and the title bar show it.
+
+### Scripts
+
+| Script | What it does |
+| --- | --- |
+| `scripts/build.nu` | Builds the workspace. `--debug` skips optimizations, `--test` runs the tests, and `--lint` runs clippy. |
+| `scripts/install.nu` | Builds a release and copies `fff-Finder` to `~/.cargo/bin`, or to `--dest`. |
+| `scripts/bundle.nu` | Packages the app into `dist/` for this platform. `--skip-build` packages the last release build, and `--install` installs the Linux desktop entry. |
+| `scripts/screenshots.nu` | Renders `docs/images` (macOS). |
+| `scripts/windows-icon.nu` | Renders `assets/app-icon.svg` into `assets/windows/fff-Finder.ico`, the icon the Windows build embeds (macOS). Run it after changing the SVG. |
+
+The scripts ask Cargo where it builds, so `CARGO_TARGET_DIR` and
+`build.target-dir` in a Cargo config work. When the app isn't installed, the
+`fff` module looks for a build in `$env.CARGO_TARGET_DIR`, then in `target/`.
+
+### Without a GPU (WSL2 and virtual machines)
+
+On Linux, fff-Finder draws with the first graphics driver that works, trying
+GPUs before Mesa's software renderers (llvmpipe for OpenGL, lavapipe for
+Vulkan), which run on the CPU. With no usable GPU, as in WSL2 without GPU
+support and in many virtual machines, it ends up drawing in software and
+prints this once:
+
+```text
+fff-Finder: drawing in software with llvmpipe (…), not on a GPU
+```
+
+On the way, Mesa can print a warning for each hardware driver it tried, such
+as `libEGL warning: failed to get driver for name fd -1`,
+`MESA-LOADER: failed to retrieve device information`, and
+`MESA: error: ZINK: failed to choose pdev`. If the window opens and draws,
+they're harmless.
+
+Set `FFF_FINDER_SOFTWARE_RENDERING=1` to go straight to the software
+renderers, which should skip the hardware drivers and their warnings. It sets Mesa's
+`LIBGL_ALWAYS_SOFTWARE=1` and the Vulkan loader's
+`VK_LOADER_DRIVERS_SELECT=*lvp*` (Vulkan loader 1.3.234 or newer), unless
+you've set them yourself. It needs Mesa's software drivers: `libgl1-mesa-dri`
+and `mesa-vulkan-drivers` on Debian and Ubuntu. For the desktop entry, change
+its `Exec` line to `env FFF_FINDER_SOFTWARE_RENDERING=1 fff-Finder %f`.
 
 ## Development
 

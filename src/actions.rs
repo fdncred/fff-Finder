@@ -62,7 +62,8 @@ pub const FINDER: &str = "Finder";
 /// Key context of the file views; arrows, Space and Return only apply here
 /// so they keep working normally in text fields.
 pub const FILES: &str = "FinderFiles";
-/// Key context of the Quick Look preview, so Space closes it.
+/// Key context of the Quick Look preview, so Space closes it and the arrows
+/// move through the items.
 pub const QUICK_LOOK: &str = "QuickLook";
 
 pub fn bind_keys(cx: &mut App) {
@@ -115,6 +116,10 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-y", QuickLook, files),
         KeyBinding::new("space", QuickLook, Some(QUICK_LOOK)),
         KeyBinding::new("secondary-y", QuickLook, Some(QUICK_LOOK)),
+        KeyBinding::new("up", MoveUp, Some(QUICK_LOOK)),
+        KeyBinding::new("down", MoveDown, Some(QUICK_LOOK)),
+        KeyBinding::new("left", MoveLeft, Some(QUICK_LOOK)),
+        KeyBinding::new("right", MoveRight, Some(QUICK_LOOK)),
         KeyBinding::new("secondary-=", PreviewTextBigger, Some(QUICK_LOOK)),
         KeyBinding::new("secondary-+", PreviewTextBigger, Some(QUICK_LOOK)),
         KeyBinding::new("secondary--", PreviewTextSmaller, Some(QUICK_LOOK)),

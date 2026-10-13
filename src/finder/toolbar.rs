@@ -1,7 +1,7 @@
 //! The unified toolbar: title, back/forward, view switcher, sort and action
-//! menus, Nushell menu, and the search field.
+//! menus, Nushell menu, the search scope, and the search field.
 
-use super::Finder;
+use super::{Finder, SearchScope};
 use crate::actions::*;
 use crate::theme::palette;
 use crate::theme::ui;
@@ -166,9 +166,36 @@ impl Finder {
                 }),
         );
 
+        // Searches only the folder the window shows, like the scope bar's
+        // folder button, but before the search starts.
+        let folder = self
+            .current_folder()
+            .map(fff_Finder_core::entry::display_name);
+        let in_folder = folder.is_some() && self.scope == SearchScope::Folder;
+        let scope_tip = match &folder {
+            Some(name) => format!("Search Only in “{name}”"),
+            None => "Search Only in This Folder".to_string(),
+        };
+        let scope = pill(cx).child(
+            pill_button("search-scope", Lucide::FolderSearch, cx)
+                .tooltip(scope_tip)
+                .disabled(folder.is_none())
+                .selected(in_folder)
+                .when(in_folder, |b| b.bg(pal.pill_selected))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    let scope = if in_folder {
+                        SearchScope::Computer
+                    } else {
+                        SearchScope::Folder
+                    };
+                    this.set_scope(scope, cx);
+                })),
+        );
+
         let search = h_flex()
             .w(ui(250.))
-            .flex_shrink_0()
+            // Narrows before the toolbar overflows the window.
+            .min_w(ui(160.))
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             // Down arrow moves from the search field into the results.
             .capture_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
@@ -236,6 +263,7 @@ impl Finder {
                 .child(sort)
                 .child(nushell)
                 .child(actions)
+                .child(scope)
                 .child(search),
         )
     }

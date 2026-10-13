@@ -280,6 +280,35 @@ fn search_field_typing_escape_and_down_arrow(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn search_scope_button(cx: &mut TestAppContext) {
+    let fx = Fixture::new("scope-button");
+    let mut ui = Ui::open(cx, &fx.dir);
+    let scope = |ui: &Ui| ui.read(|f| f.search_scope());
+    ui.go_to(&fx.path("Projects"));
+    ui.click("search-scope");
+    assert_eq!(scope(&ui), SearchScope::Folder, "set before searching");
+    ui.update(|f, _, cx| f.set_query("budget".into(), true, cx));
+    assert!(ui.names().is_empty(), "Budget.csv is outside Projects");
+    assert!(ui.exists("scope-folder"));
+
+    ui.click("search-scope");
+    assert_eq!(scope(&ui), SearchScope::Computer);
+    assert_eq!(ui.names(), ["Budget.csv"], "the search runs again");
+    ui.click("scope-folder");
+    ui.click("search-scope");
+    assert_eq!(
+        scope(&ui),
+        SearchScope::Computer,
+        "it follows the scope bar"
+    );
+
+    // Recents isn't a folder, so the button does nothing there.
+    ui.update(|f, window, cx| f.navigate(Location::Recents, window, cx));
+    ui.click("search-scope");
+    assert_eq!(scope(&ui), SearchScope::Computer);
+}
+
+#[gpui_kit::test]
 fn scope_bar_controls(cx: &mut TestAppContext) {
     let fx = Fixture::new("scope-bar");
     let mut ui = Ui::open(cx, &fx.dir);
@@ -1014,6 +1043,63 @@ fn quick_look_text_size(cx: &mut TestAppContext) {
     assert!(!ui.exists("ql-text-bigger"), "a folder has no text to size");
     ui.press("space");
     assert_eq!(size(&ui), 32., "the size stays for the next preview");
+}
+
+#[gpui_kit::test]
+fn quick_look_arrows_move_through_items(cx: &mut TestAppContext) {
+    let fx = Fixture::new("quick-look-arrows");
+    let mut ui = Ui::open(cx, &fx.dir);
+    ui.click("view-list");
+    let names = ui.names();
+    let shown = |ui: &Ui| ui.read(|f| f.primary_entry().map(|e| e.name));
+    ui.select(&names[0]);
+    ui.press("space");
+    ui.press("down");
+    assert!(ui.dialog_open(), "the arrows keep Quick Look open");
+    assert_eq!(ui.selected(), [names[1].as_str()]);
+    assert!(ui.read(|f| f.has_preview_for_test(&fx.path(&names[1]))));
+    ui.press("right");
+    assert_eq!(
+        ui.selected(),
+        [names[2].as_str()],
+        "Right is next in the list"
+    );
+    ui.press("left");
+    ui.press("up");
+    assert_eq!(ui.selected(), [names[0].as_str()]);
+    ui.press("space");
+    assert!(!ui.dialog_open(), "Space still closes it");
+
+    // With several items selected, the arrows step through just those.
+    ui.select(&names[0]);
+    ui.select_also(&names[2]);
+    ui.press("space");
+    assert_eq!(shown(&ui).as_deref(), Some(names[2].as_str()));
+    ui.press("right");
+    assert_eq!(
+        shown(&ui).as_deref(),
+        Some(names[0].as_str()),
+        "wraps around"
+    );
+    ui.press("up");
+    assert_eq!(shown(&ui).as_deref(), Some(names[2].as_str()));
+    assert_eq!(ui.selected(), [names[0].as_str(), names[2].as_str()]);
+    assert!(ui.read(|f| f.has_preview_for_test(&fx.path(&names[0]))));
+    ui.press("space");
+
+    // In columns, the arrows stay in the active column, even after opening
+    // a folder, which moves the focus to the files.
+    ui.click("view-columns");
+    ui.click(item_id("crow", &fx.path("notes.txt")));
+    ui.press("space");
+    ui.press("down");
+    assert_eq!(ui.selected(), ["Projects"]);
+    assert!(ui.read(|f| f.has_preview_for_test(&fx.path("Projects"))));
+    ui.press("right");
+    assert_eq!(ui.selected(), ["Roadmap.md"]);
+    ui.press("left");
+    assert_eq!(shown(&ui).as_deref(), Some("Projects"));
+    assert!(ui.dialog_open());
 }
 
 // ----- Nushell panel -----------------------------------------------------------------

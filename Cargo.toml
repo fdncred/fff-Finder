@@ -52,6 +52,10 @@ objc2-foundation = "0.3"
 objc2-app-kit = "0.3"
 block2 = "0.6"
 
+# Embeds the app icon in the Windows executable.
+[build-dependencies]
+embed-resource = "3"
+
 [dev-dependencies]
 gpui-kit = { version = "0.7.3", features = ["test-support"] }
 image = { version = "0.25", default-features = false, features = ["png"] }

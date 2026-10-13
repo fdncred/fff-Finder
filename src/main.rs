@@ -4,6 +4,8 @@
 use fff_Finder::args;
 
 fn main() {
+    // Before GPUI, or any other thread, starts.
+    fff_Finder::graphics::prepare();
     match args::parse(std::env::args_os().skip(1)) {
         Ok(args::Parsed::Run(args)) if args.detach && !args.pick => detach(),
         Ok(args::Parsed::Run(args)) => fff_Finder::run(args),

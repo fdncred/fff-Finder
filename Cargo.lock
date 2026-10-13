@@ -1697,6 +1697,7 @@ dependencies = [
  "async-channel",
  "block2 0.6.2",
  "dirs 6.0.0",
+ "embed-resource",
  "fff-Finder-core",
  "gpui-kit",
  "image",

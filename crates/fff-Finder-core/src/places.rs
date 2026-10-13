@@ -204,7 +204,7 @@ fn volumes() -> Vec<Place> {
     out
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "macos")]
 fn device_id(path: &Path) -> Option<u64> {
     use std::os::unix::fs::MetadataExt;
     std::fs::metadata(path).ok().map(|m| m.dev())

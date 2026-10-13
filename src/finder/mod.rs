@@ -971,6 +971,8 @@ impl Finder {
         if self.scope != scope {
             self.scope = scope;
             self.run_search(false, cx);
+            // The toolbar shows the scope even when nothing is searched.
+            cx.notify();
         }
     }
 

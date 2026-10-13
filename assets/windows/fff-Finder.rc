@@ -1,0 +1,3 @@
+// The app icon. GPUI loads icon 1 for its windows; Explorer and the taskbar
+// show it too.
+1 ICON "fff-Finder.ico"
