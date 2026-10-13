@@ -1,9 +1,9 @@
 # fff-Finder manual
 
 This manual describes everything fff-Finder does, control by control. The
-[README](../README.md) covers installing and building it, and
-[protocol.md](protocol.md) documents the local socket that the `fff` Nushell
-module and other tools use.
+[README](../README.md) covers installing it, [Development](#development)
+covers building and testing it, and [protocol.md](protocol.md) documents the
+local socket that the `fff` Nushell module and other tools use.
 
 Keyboard shortcuts are written with Cmd. On Linux and Windows, use Ctrl
 instead.
@@ -39,6 +39,7 @@ instead.
 - [Files, folders, and environment variables](#files-folders-and-environment-variables)
 - [Appearance](#appearance)
 - [Names](#names)
+- [Development](#development)
 
 ## Starting fff-Finder
 
@@ -73,6 +74,14 @@ fff-Finder [PATH] [OPTIONS]
 
 Indexing starts as soon as the app starts. The first scan has to finish
 before "This Computer" searches return results.
+
+macOS asks before an app reads Desktop, Documents, or Downloads. To index
+those and other protected folders without prompts, give fff-Finder Full Disk
+Access in System Settings > Privacy & Security, then reopen it.
+
+On Linux the index watches folders with inotify, one watch per folder, and a
+big home folder can exceed the default limit. Raise it with
+`sudo sysctl fs.inotify.max_user_watches=1048576`.
 
 ## The window
 
@@ -233,8 +242,9 @@ and isn't saved.
 
 **Show Hidden Files** (Cmd+Shift+.) shows dot files and other hidden items in
 folders. It is also in the empty-space menu and the View menu, and in Settings.
-Searches find hidden files only inside git repositories, because that is what
-fff-search indexes.
+Searches find hidden files only when the search location is itself a git
+repository, because that is what fff-search indexes. See
+[What the index skips](#what-the-index-skips).
 
 ## Searching
 
@@ -284,6 +294,22 @@ the same search later.
 
 Search results always show where each item is. Searches can't filter by size
 or date themselves; use a [Nushell filter](#filters-and-smart-folders).
+
+### What the index skips
+
+fff-search decides what goes into the index, and no setting changes it:
+
+- Hidden files and folders, unless the search location is itself a git
+  repository. This keeps caches and configuration such as `~/.cache` out of a
+  home folder index. Show Hidden Files also applies to search results, but it
+  can't bring back files the index left out.
+- Files a repository's `.gitignore` excludes.
+- Outside git repositories, build and cache folders such as `node_modules`,
+  `target/debug`, `.cargo/registry`, and, on macOS, `~/Library/Caches` and
+  `~/Library/Application Support`.
+
+A folder outside every search location gets its own temporary index when you
+search it, so a git repository searched that way includes its hidden files.
 
 ## Recents
 
@@ -904,6 +930,9 @@ release or debug build in the repository.
 
 ## The control socket
 
+The control socket is experimental. Its endpoints may change between
+versions.
+
 A running fff-Finder answers requests about its index, and requests to show
 things, over a local connection:
 
@@ -982,3 +1011,62 @@ The app, its bundle, and its crates are named fff-Finder: the packages are
 `fff-Finder` and `fff-Finder-core`, and Rust code refers to them as
 `fff_Finder` and `fff_Finder_core`, because Rust identifiers can't contain
 `-`. Environment variables stay uppercase, as `FFF_FINDER_*`.
+
+## Development
+
+```nu
+nu scripts/build.nu --test --lint    # build, test, clippy
+nu scripts/screenshots.nu            # regenerate docs/images (macOS)
+cargo run -- ~/src --query readme    # run from source
+```
+
+### Tests
+
+The UI tests open the real window headlessly and use it with mouse clicks and
+key presses:
+
+- `tests/controls.rs` clicks every control and checks what each click changed:
+  toolbar buttons and menus, the search field and scope bar, the filter bar,
+  sidebar rows and Smart Folders, the path bar, the icon-size slider, list
+  headers, items in all four views, context menus and Nushell actions, every
+  button and field in every dialog (batch rename included), the Nushell panel,
+  and the picker bar.
+- `tests/finder.rs` presses every keyboard shortcut except Quit and New Window,
+  which belong to the app rather than the window, and types to select.
+- `tests/server.rs` talks to the socket server, and `tests/nu_module.rs` runs
+  `fff.nu` in a real `nu` against it.
+
+A step that runs longer than 20 seconds fails the run and names the step, so a
+hang shows up as a failure instead of a `cargo test` that never ends. Opening a
+file or showing it in Finder is recorded instead of performed, and nothing is
+moved to the Trash.
+
+### Example tools
+
+`examples/drive.rs` replays the same kind of steps in the visible window
+against your real index and prints the window's state after each one. It
+never writes your settings.
+
+```nu
+cargo run --example drive -- key:cmd-, click:show-hidden key:escape key:cmd-shift-g 'type:~/src' key:enter
+```
+
+`examples/screenshot.rs` renders the window to a PNG with Metal, so a UI change
+can be checked without opening it. `examples/macos_colors.rs` prints the
+macOS colors the themes are based on, in light and dark.
+
+`examples/terminals.rs` lists the terminals found and what Automatic picks.
+With `--verify` it opens each one with a short script in place of `nu` that
+records the folder it started in, then closes it. Terminal and iTerm2 keep
+their windows open, so it checks them only when you name them.
+
+```nu
+cargo run --example terminals -- --verify
+```
+
+### Hangs
+
+If the window ever stops responding, run it with `FFF_FINDER_WATCHDOG=1`. After
+three seconds without a response it saves every thread's stack to
+`hang-<time>.txt` in the data folder and prints the path. Other platforms print
+the process ID to attach a debugger to.

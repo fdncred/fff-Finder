@@ -6,6 +6,8 @@ over a local connection, so shells and tools search the same index the window
 uses instead of building their own. `nu/fff.nu` and Nushell's `idx` commands
 are the two clients.
 
+The protocol is experimental. Endpoints may change between versions.
+
 ## Finding the server
 
 The server describes itself in `server.json` inside the `run` folder of
