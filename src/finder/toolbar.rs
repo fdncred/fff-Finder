@@ -15,6 +15,7 @@ use gpui_kit::component::{
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use std::cell::Cell;
 
 pub const TOOLBAR_HEIGHT: f32 = 52.;
 /// Room for the macOS traffic lights when they sit over this view.
@@ -46,7 +47,15 @@ pub fn pill_button(id: impl Into<ElementId>, icon: impl Into<Icon>, cx: &App) ->
         .text_color(cx.theme().foreground)
 }
 
+thread_local! {
+    /// A left press in empty toolbar space that hasn't moved yet (Linux).
+    static DRAG_ARMED: Cell<bool> = const { Cell::new(false) };
+}
+
 /// Start a window drag (or zoom on double-click) from empty toolbar space.
+/// Windows has a system title bar for that. On Linux there is one only when
+/// the window manager decorates the window; otherwise the toolbar is the
+/// title bar, so right-click also shows the window menu there.
 pub fn window_drag_area<E: InteractiveElement>(el: E) -> E {
     if cfg!(target_os = "macos") {
         el.on_mouse_down(MouseButton::Left, |event, window, _| {
@@ -56,15 +65,79 @@ pub fn window_drag_area<E: InteractiveElement>(el: E) -> E {
                 window.start_window_move();
             }
         })
-    } else {
+    } else if cfg!(target_os = "windows") {
         el
+    } else {
+        // Moving the window takes the pointer, so wait for the press to
+        // become a drag; a second click then still maximizes.
+        el.on_mouse_down(MouseButton::Left, |event, window, _| {
+            let double = event.click_count >= 2;
+            DRAG_ARMED.set(!double);
+            if double {
+                window.zoom_window();
+            }
+        })
+        .on_mouse_down_out(|_, _, _| DRAG_ARMED.set(false))
+        .on_mouse_up(MouseButton::Left, |_, _, _| DRAG_ARMED.set(false))
+        .on_mouse_move(|event, window, _| {
+            if event.pressed_button == Some(MouseButton::Left) && DRAG_ARMED.replace(false) {
+                window.start_window_move();
+            }
+        })
+        .on_mouse_down(MouseButton::Right, |event, window, _| {
+            if matches!(window.window_decorations(), Decorations::Client { .. }) {
+                window.show_window_menu(event.position);
+            }
+        })
     }
+}
+
+/// Minimize, maximize, and close buttons for a Linux window whose title bar
+/// fff-Finder draws, because the window manager draws none. They're narrower
+/// than the pill buttons so the toolbar still fits the default window.
+fn window_controls(window: &Window, cx: &mut Context<Finder>) -> Option<Div> {
+    if cfg!(any(target_os = "macos", target_os = "windows"))
+        || !matches!(window.window_decorations(), Decorations::Client { .. })
+    {
+        return None;
+    }
+    let supported = window.window_controls();
+    let (maximize_icon, maximize_tip) = if window.is_maximized() {
+        (IconName::WindowRestore, "Restore")
+    } else {
+        (IconName::WindowMaximize, "Maximize")
+    };
+    let button = |id: &'static str, icon: IconName, tip: &'static str, cx: &App| {
+        pill_button(id, icon, cx).w(ui(28.)).tooltip(tip)
+    };
+    let controls = h_flex()
+        .gap(ui(2.))
+        .flex_shrink_0()
+        // Clicks on the buttons must not start a window drag.
+        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+        .when(supported.minimize, |this| {
+            this.child(
+                button("window-minimize", IconName::WindowMinimize, "Minimize", cx)
+                    .on_click(|_, window, _| window.minimize_window()),
+            )
+        })
+        .when(supported.maximize, |this| {
+            this.child(
+                button("window-maximize", maximize_icon, maximize_tip, cx)
+                    .on_click(|_, window, _| window.zoom_window()),
+            )
+        })
+        .child(
+            button("window-close", IconName::WindowClose, "Close Window", cx)
+                .on_click(cx.listener(|this, _, window, _| this.close_window(window))),
+        );
+    Some(controls)
 }
 
 impl Finder {
     pub(super) fn render_toolbar(
         &mut self,
-        _window: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let pal = palette(cx);
@@ -264,7 +337,8 @@ impl Finder {
                 .child(nushell)
                 .child(actions)
                 .child(scope)
-                .child(search),
+                .child(search)
+                .children(window_controls(window, cx)),
         )
     }
 }

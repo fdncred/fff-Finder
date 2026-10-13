@@ -35,8 +35,8 @@ pub fn report(window: &Window) {
         && !REPORTED.swap(true, Ordering::Relaxed)
     {
         eprintln!(
-            "fff-Finder: drawing in software with {} ({}), not on a GPU",
-            gpu.device_name, gpu.driver_name
+            "fff-Finder: drawing in software with {}, not on a GPU",
+            gpu.device_name
         );
     }
 }

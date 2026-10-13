@@ -140,7 +140,7 @@ From left to right:
 | Control | What it does |
 | --- | --- |
 | Show Sidebar | Appears only when the sidebar is hidden. Shows it again. |
-| Title | The folder's name, or `Searching "text"` during a search. On macOS, drag empty toolbar space to move the window, and double-click it to zoom. |
+| Title | The folder's name, or `Searching "text"` during a search. On macOS and Linux, drag empty toolbar space to move the window, and double-click it to zoom (maximize on Linux). |
 | Back, Forward | Move through the window's history. |
 | as Icons, as List, as Columns, as Gallery | Switch the view. |
 | Sort and View Options | The sort menu. See [Sorting and hidden files](#sorting-and-hidden-files). |
@@ -148,6 +148,7 @@ From left to right:
 | Actions (…) | File commands and dialogs. See [Menus](#menus). |
 | Search Only in "Folder name" | Searches only the folder the window shows, and everything inside it, instead of every search location. Click it again to search This Computer. It's the same choice as the scope bar's, so you can make it before you type. It's off in Recents and other results that aren't one folder. |
 | Search field | Search as you type. The clear button ends the search. |
+| Minimize, Maximize, Close | Linux only, when the window manager doesn't draw a title bar, as on GNOME with Wayland. The toolbar is then the title bar, and right-clicking empty toolbar space shows the window menu. |
 
 ## Sidebar
 
