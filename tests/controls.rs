@@ -287,6 +287,9 @@ fn search_scope_button(cx: &mut TestAppContext) {
     ui.go_to(&fx.path("Projects"));
     ui.click("search-scope");
     assert_eq!(scope(&ui), SearchScope::Folder, "set before searching");
+    ui.update(|f, _, cx| f.set_query("atlas".into(), true, cx));
+    let names = ui.names();
+    assert!(names.iter().any(|n| n == "Project Atlas.txt"), "{names:?}");
     ui.update(|f, _, cx| f.set_query("budget".into(), true, cx));
     assert!(ui.names().is_empty(), "Budget.csv is outside Projects");
     assert!(ui.exists("scope-folder"));
