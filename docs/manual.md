@@ -978,9 +978,6 @@ http get --unix-socket $sock 'http://localhost/v1/find?query=readme&limit=5'
 search, watch, selection, show, and open. A second launch of fff-Finder uses
 `POST /v1/open` to hand off to the running copy.
 
-A proposed Nushell change adds `idx connect`, which points Nushell's `idx`
-commands at this socket. It isn't in a Nushell release yet.
-
 ## Files, folders, and environment variables
 
 | Folder | macOS | Linux | Windows |

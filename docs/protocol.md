@@ -3,8 +3,7 @@
 A running fff-Finder window keeps a live fff-search index of every search
 location. It answers queries about that index, and requests to show things,
 over a local connection, so shells and tools search the same index the window
-uses instead of building their own. `nu/fff.nu` and Nushell's `idx` commands
-are the two clients.
+uses instead of building their own. `nu/fff.nu` is the bundled client.
 
 The protocol is experimental. Endpoints may change between versions.
 
