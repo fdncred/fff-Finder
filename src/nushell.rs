@@ -186,12 +186,33 @@ pub fn rename_names(
     Ok(names)
 }
 
+/// `--login` when Nushell has a config folder, so the user's config applies.
+/// Without one there's no config to load, and `nu --login` would create the
+/// folder and print "Config file created at: …" on stdout.
+pub fn login_args() -> &'static [&'static str] {
+    if nu_config_home().is_some_and(|dir| dir.is_dir()) {
+        &["--login"]
+    } else {
+        &[]
+    }
+}
+
+/// Nushell's config folder, found the way `nu` finds it: an absolute
+/// `$XDG_CONFIG_HOME`, or else the platform's config folder, plus `nushell`.
+fn nu_config_home() -> Option<PathBuf> {
+    std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|dir| dir.is_absolute())
+        .or_else(dirs::config_dir)
+        .map(|dir| dir.join("nushell"))
+}
+
 /// `source` highlighted by `nu-highlight` in a login shell, so the user's
 /// `color_config` applies. Returns the ANSI-colored text.
 pub fn highlight_nu(nu: &Path, source: &str) -> Result<String, String> {
     let child = Command::new(nu)
+        .args(login_args())
         .args([
-            "--login",
             "--stdin",
             "-c",
             "$env.config.use_ansi_coloring = true; $in | nu-highlight",

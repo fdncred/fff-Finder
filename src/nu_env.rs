@@ -49,7 +49,8 @@ pub fn load(nu: &Path) -> Result<NuEnv, String> {
         serde_json::to_string(&out.to_string_lossy()).unwrap_or_default()
     );
     let mut child = std::process::Command::new(nu)
-        .args(["--login", "-c", &script])
+        .args(crate::nushell::login_args())
+        .args(["-c", &script])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())

@@ -71,12 +71,14 @@ fn get(endpoint: &Endpoint, target: &str) -> Value {
     client::json(endpoint, "GET", target, None).unwrap_or_else(|e| panic!("{target}: {e}"))
 }
 
+#[cfg(unix)]
 fn status_of(endpoint: &Endpoint, method: &str, target: &str, body: Option<&Value>) -> u16 {
     client::request(endpoint, method, target, body, Duration::from_secs(10))
         .unwrap()
         .0
 }
 
+#[cfg(unix)]
 fn paths(rows: &Value) -> Vec<String> {
     rows.as_array()
         .unwrap()
