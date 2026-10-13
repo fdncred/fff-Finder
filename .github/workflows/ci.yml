@@ -30,7 +30,8 @@ jobs:
           version: "0.116"
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
+      # Run every test binary, so one run shows every failure.
+      - run: cargo test --workspace --no-fail-fast
       - name: Check Nushell scripts
         shell: nu {0}
         run: |
