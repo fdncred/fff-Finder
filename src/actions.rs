@@ -49,6 +49,11 @@ actions!(
         Rescan,
         Choose,
         ToggleAppearance,
+        ToggleFilter,
+        OpenInEditor,
+        PreviewTextBigger,
+        PreviewTextSmaller,
+        PreviewTextReset,
     ]
 );
 
@@ -91,6 +96,7 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("ctrl-`", ToggleNuPanel, finder),
         KeyBinding::new("secondary-shift-d", ToggleAppearance, finder),
         KeyBinding::new("secondary-/", SearchHelp, finder),
+        KeyBinding::new("secondary-alt-f", ToggleFilter, finder),
         // File views.
         KeyBinding::new("up", MoveUp, files),
         KeyBinding::new("down", MoveDown, files),
@@ -109,6 +115,10 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-y", QuickLook, files),
         KeyBinding::new("space", QuickLook, Some(QUICK_LOOK)),
         KeyBinding::new("secondary-y", QuickLook, Some(QUICK_LOOK)),
+        KeyBinding::new("secondary-=", PreviewTextBigger, Some(QUICK_LOOK)),
+        KeyBinding::new("secondary-+", PreviewTextBigger, Some(QUICK_LOOK)),
+        KeyBinding::new("secondary--", PreviewTextSmaller, Some(QUICK_LOOK)),
+        KeyBinding::new("secondary-0", PreviewTextReset, Some(QUICK_LOOK)),
         KeyBinding::new("escape", Escape, files),
         KeyBinding::new("secondary-a", SelectAll, files),
         KeyBinding::new("secondary-c", CopyPath, files),
@@ -120,17 +130,18 @@ pub fn bind_keys(cx: &mut App) {
 
 pub fn set_menus(cx: &mut App) {
     cx.set_menus([
-        Menu::new("fffFinder").items([
+        Menu::new("fff-Finder").items([
             MenuItem::action("Settings…", ShowSettings),
             MenuItem::action("Rescan Index", Rescan),
             MenuItem::separator(),
-            MenuItem::action("Quit fffFinder", Quit),
+            MenuItem::action("Quit fff-Finder", Quit),
         ]),
         Menu::new("File").items([
             MenuItem::action("New Window", NewWindow),
             MenuItem::action("New Folder", NewFolder),
             MenuItem::separator(),
             MenuItem::action("Open", OpenSelected),
+            MenuItem::action("Open in Editor", OpenInEditor),
             MenuItem::action("Quick Look", QuickLook),
             MenuItem::action("Rename…", Rename),
             MenuItem::action("Move to Trash", MoveToTrash),
@@ -150,6 +161,7 @@ pub fn set_menus(cx: &mut App) {
             MenuItem::action("Select All Items", SelectAll),
             MenuItem::separator(),
             MenuItem::action("Find", FocusSearch),
+            MenuItem::action("Filter with Nushell", ToggleFilter),
             MenuItem::action("Search Syntax…", SearchHelp),
         ]),
         Menu::new("View").items([

@@ -1,6 +1,6 @@
 [package]
-name = "fff-finder-core"
-description = "Search engine and filesystem model shared by fffFinder and nu_plugin_fff"
+name = "fff-Finder-core"
+description = "Search engine, file model, and settings behind the fff-Finder app"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

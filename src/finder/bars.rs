@@ -4,7 +4,8 @@ use super::{Finder, SearchScope, group_digits};
 use crate::actions::*;
 use crate::model::Location;
 use crate::theme::palette;
-use fff_finder_core::{KindFilter, ViewMode, places};
+use crate::theme::ui;
+use fff_Finder_core::{KindFilter, ViewMode, places};
 use gpui_kit::TestSupportExt as _;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
@@ -35,9 +36,9 @@ impl Finder {
         let chip = |id: &'static str, label: SharedString, on: bool| {
             div()
                 .id(id)
-                .px(px(10.))
-                .py(px(3.))
-                .rounded(px(6.))
+                .px(ui(10.))
+                .py(ui(3.))
+                .rounded(ui(6.))
                 .text_color(if on { accent } else { muted })
                 .font_weight(if on {
                     FontWeight::MEDIUM
@@ -51,21 +52,21 @@ impl Finder {
 
         let folder_name = self
             .current_folder()
-            .map(fff_finder_core::entry::display_name);
+            .map(fff_Finder_core::entry::display_name);
         let scope = self.scope;
         let contents = self.search_contents;
         let kind = self.config.kind_filter;
         let view = cx.entity();
 
         h_flex()
-            .h(px(36.))
+            .h(ui(36.))
             .flex_shrink_0()
-            .px(px(16.))
-            .gap(px(10.))
+            .px(ui(16.))
+            .gap(ui(10.))
             .bg(bar)
             .border_b_1()
             .border_color(border)
-            .text_size(px(12.))
+            .text_size(ui(12.))
             .child(div().text_color(muted).child("Search:"))
             .child(
                 chip(
@@ -91,7 +92,7 @@ impl Finder {
                     .test_support(),
                 )
             })
-            .child(div().w(px(1.)).h(px(16.)).bg(border))
+            .child(div().w(ui(1.)).h(ui(16.)).bg(border))
             .child(
                 chip("by-name", "Name".into(), !contents)
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -111,13 +112,36 @@ impl Finder {
             .child(div().flex_1())
             .child(
                 div()
+                    .id("filter-toggle")
+                    .p(ui(3.))
+                    .rounded(ui(5.))
+                    .hover(|s| s.bg(hover))
+                    .when(self.filter_bar_open(), |this| this.bg(selected_bg))
+                    .child(Icon::new(Lucide::Funnel).with_size(ui(14.)).text_color(
+                        if self.filter_bar_open() {
+                            accent
+                        } else {
+                            muted
+                        },
+                    ))
+                    .tooltip(|window, cx| {
+                        gpui_kit::component::tooltip::Tooltip::new("Filter with Nushell")
+                            .build(window, cx)
+                    })
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        this.toggle_filter(&crate::actions::ToggleFilter, window, cx)
+                    }))
+                    .test_support(),
+            )
+            .child(
+                div()
                     .id("search-help")
-                    .p(px(3.))
-                    .rounded(px(5.))
+                    .p(ui(3.))
+                    .rounded(ui(5.))
                     .hover(|s| s.bg(hover))
                     .child(
                         Icon::new(IconName::Info)
-                            .with_size(px(14.))
+                            .with_size(ui(14.))
                             .text_color(muted),
                     )
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
@@ -129,7 +153,7 @@ impl Finder {
                 Button::new("kind")
                     .outline()
                     .xsmall()
-                    .w(px(130.))
+                    .w(ui(130.))
                     .label(kind.label())
                     .icon(Icon::new(IconName::ChevronsUpDown))
                     .disabled(contents)
@@ -146,7 +170,7 @@ impl Finder {
                                     )),
                             );
                         }
-                        menu.min_w(px(150.))
+                        menu.min_w(ui(150.))
                     }),
             )
     }
@@ -176,7 +200,7 @@ impl Finder {
         let hover = theme.list_hover;
         let pal = palette(cx);
 
-        let mut crumbs = h_flex().gap(px(5.)).overflow_hidden();
+        let mut crumbs = h_flex().gap(ui(5.)).overflow_hidden();
         if let Some((target, is_file)) = self.path_bar_target() {
             let parts = places::breadcrumbs(&target);
             let last = parts.len().saturating_sub(1);
@@ -184,7 +208,7 @@ impl Finder {
                 if ix > 0 {
                     crumbs = crumbs.child(
                         Icon::new(IconName::ChevronRight)
-                            .with_size(px(9.))
+                            .with_size(ui(9.))
                             .text_color(muted),
                     );
                 }
@@ -199,13 +223,13 @@ impl Finder {
                 crumbs = crumbs.child(
                     h_flex()
                         .id(("crumb", ix))
-                        .gap(px(4.))
-                        .px(px(3.))
-                        .rounded(px(4.))
+                        .gap(ui(4.))
+                        .px(ui(3.))
+                        .rounded(ui(4.))
                         .flex_shrink(if is_last { 0. } else { 1. })
-                        .min_w(px(20.))
+                        .min_w(ui(20.))
                         .hover(|s| s.bg(hover))
-                        .child(icon.with_size(px(12.)).text_color(if ix == 0 {
+                        .child(icon.with_size(ui(12.)).text_color(if ix == 0 {
                             muted
                         } else {
                             pal.sidebar_icon
@@ -229,13 +253,13 @@ impl Finder {
             }
         }
         h_flex()
-            .h(px(28.))
+            .h(ui(28.))
             .flex_shrink_0()
-            .px(px(12.))
+            .px(ui(12.))
             .bg(bar)
             .border_t_1()
             .border_color(border)
-            .text_size(px(11.))
+            .text_size(ui(11.))
             .child(crumbs)
     }
 
@@ -252,50 +276,65 @@ impl Finder {
         let bar = theme.status_bar;
         let count = self.rows.len();
         let selected = self.selection.len();
+        let filtered = !self.filter_text().is_empty() && self.filter_error().is_none();
         // Searches stop at the result limit; say so rather than imply a total.
-        let capped = self.is_searching() && count >= self.config.result_limit;
-        let shown = format!("{}{}", group_digits(count), if capped { "+" } else { "" });
+        let before = self.unfiltered_len;
+        let capped = self.is_searching() && before >= self.search_limit.max(1);
+        let plus = if capped { "+" } else { "" };
         let text = if selected > 0 {
-            format!("{selected} of {shown} selected")
+            format!("{selected} of {} selected", group_digits(count))
+        } else if filtered {
+            format!(
+                "{} of {}{plus} items pass the filter",
+                group_digits(count),
+                group_digits(before)
+            )
         } else if count == 1 {
             "1 item".to_string()
         } else {
-            format!("{shown} items")
+            format!("{}{plus} items", group_digits(count))
         };
         let timing = self
             .search_stats
             .as_ref()
             .filter(|_| self.is_searching())
-            .map(|stats| format!("{:.1} ms", stats.elapsed.as_secs_f64() * 1000.));
+            .map(|stats| {
+                let ms = format!("{:.1} ms", stats.elapsed.as_secs_f64() * 1000.);
+                if stats.stopped {
+                    format!("{ms}, stopped at the time limit")
+                } else {
+                    ms
+                }
+            });
         // The sidebar footer shows indexing progress when it is visible.
         let indexing = self
             .indexing_progress()
             .filter(|_| !self.config.show_sidebar);
         let icons = self.effective_view() == ViewMode::Icons;
         h_flex()
-            .h(px(28.))
+            .h(ui(28.))
             .flex_shrink_0()
-            .px(px(14.))
-            .gap(px(8.))
+            .px(ui(14.))
+            .gap(ui(8.))
             .bg(bar)
-            .text_size(px(11.))
+            .text_size(ui(11.))
             .text_color(muted)
             .child(text)
             .when_some(timing, |this, timing| {
                 this.child("·").child(
                     div()
                         .font_family(cx.theme().mono_font_family.clone())
-                        .text_size(px(10.5))
+                        .text_size(ui(10.5))
                         .child(timing),
                 )
             })
-            .when(self.searching, |this| {
+            .when(self.searching || self.is_filtering(), |this| {
                 this.child(Spinner::new().xsmall().color(muted))
             })
             .when_some(indexing, |this, n| {
                 this.child(
                     h_flex()
-                        .gap(px(6.))
+                        .gap(ui(6.))
                         .child(Spinner::new().xsmall().color(muted))
                         .child(format!("Indexing {} files…", group_digits(n))),
                 )
@@ -304,16 +343,16 @@ impl Finder {
             .when(icons, |this| {
                 this.child(
                     h_flex()
-                        .gap(px(6.))
+                        .gap(ui(6.))
                         .child(
                             Icon::new(IconName::Square)
-                                .with_size(px(9.))
+                                .with_size(ui(9.))
                                 .text_color(muted),
                         )
-                        .child(Slider::new(&self.icon_slider).w(px(100.)))
+                        .child(Slider::new(&self.icon_slider).w(ui(100.)))
                         .child(
                             Icon::new(IconName::Square)
-                                .with_size(px(13.))
+                                .with_size(ui(13.))
                                 .text_color(muted),
                         ),
                 )
@@ -331,16 +370,16 @@ impl Finder {
             "Select an item, then press Return to choose. Esc cancels."
         };
         h_flex()
-            .h(px(44.))
+            .h(ui(44.))
             .flex_shrink_0()
-            .px(px(14.))
-            .gap(px(8.))
+            .px(ui(14.))
+            .gap(ui(8.))
             .bg(theme.status_bar)
             .border_t_1()
             .border_color(theme.status_bar_border)
-            .text_size(px(12.))
+            .text_size(ui(12.))
             .text_color(theme.muted_foreground)
-            .child(Icon::new(Lucide::Terminal).with_size(px(14.)))
+            .child(Icon::new(Lucide::Terminal).with_size(ui(14.)))
             .child(div().flex_1().truncate().child(hint))
             .child(
                 Button::new("picker-cancel")

@@ -4,8 +4,8 @@
 mod common;
 
 use common::{Fixture, Ui, cmd};
-use fff_finder_app::model::Location;
-use fff_finder_core::ViewMode;
+use fff_Finder::model::Location;
+use fff_Finder_core::ViewMode;
 use gpui_kit::TestAppContext;
 use gpui_kit::component::{ActiveTheme as _, WindowExt as _};
 
@@ -263,4 +263,107 @@ fn type_into_the_search_field_and_down_arrow(cx: &mut TestAppContext) {
     ui.press("left");
     ui.press("backspace");
     assert_eq!(ui.read(|f| f.query().to_string()), "roadmp");
+}
+
+#[gpui_kit::test]
+fn results_sent_from_nushell(cx: &mut TestAppContext) {
+    let fx = Fixture::new("results");
+    let mut ui = Ui::open(cx, &fx.dir);
+    let sent = vec![
+        fx.path("Roadmap.md"),
+        fx.path("Projects/atlas/Project Atlas.txt"),
+        fx.path("gone.txt"),
+    ];
+    let (shown, missing) =
+        ui.update(|f, window, cx| f.show_results("Big files".into(), sent, window, cx));
+    assert_eq!((shown, missing), (2, vec![fx.path("gone.txt")]));
+    assert_eq!(
+        ui.names(),
+        ["Roadmap.md", "Project Atlas.txt"],
+        "the order is kept"
+    );
+    assert_eq!(ui.read(|f| f.title()), "Big files");
+    assert!(ui.read(|f| f.shows_parent_column()));
+
+    ui.select("Project Atlas.txt");
+    let report = ui.read(|f| f.selection_json(false));
+    assert_eq!(report["location"], "results");
+    assert_eq!(report["items"].as_array().unwrap().len(), 1);
+    assert_eq!(report["items"][0]["name"], "Project Atlas.txt");
+    assert_eq!(report["items"][0]["type"], "file");
+    let everything = ui.read(|f| f.selection_json(true));
+    assert_eq!(everything["items"].as_array().unwrap().len(), 2);
+
+    ui.press(&cmd("["));
+    assert_eq!(
+        ui.folder().as_deref(),
+        Some(fx.dir.as_path()),
+        "Back leaves the results"
+    );
+
+    // `fff gui` and a second launch: a folder and a search.
+    let projects = fx.path("Projects");
+    ui.update(|f, window, cx| f.open_request(Some(&projects), Some("atlas"), window, cx));
+    assert_eq!(ui.folder(), Some(projects));
+    assert_eq!(ui.read(|f| f.query().to_string()), "atlas");
+    let report = ui.read(|f| f.selection_json(true));
+    assert_eq!(report["location"], "search");
+    assert_eq!(report["query"], "atlas");
+
+    // A file opens its folder with the file selected.
+    let roadmap = fx.path("Roadmap.md");
+    ui.update(|f, window, cx| f.open_request(Some(&roadmap), None, window, cx));
+    assert_eq!(ui.folder().as_deref(), Some(fx.dir.as_path()));
+    assert_eq!(ui.selected(), ["Roadmap.md"]);
+}
+
+#[gpui_kit::test]
+fn typing_jumps_to_matching_names(cx: &mut TestAppContext) {
+    let fx = Fixture::new("type-select");
+    let mut ui = Ui::open(cx, &fx.dir);
+    ui.press(&cmd("2"));
+    ui.type_text("r");
+    assert_eq!(ui.selected(), ["Roadmap.md"]);
+    // Letters typed within a second add to the prefix.
+    ui.type_text("o");
+    assert_eq!(ui.selected(), ["Roadmap.md"]);
+
+    ui.cx
+        .executor()
+        .advance_clock(std::time::Duration::from_secs(2));
+    ui.type_text("n");
+    assert_eq!(ui.selected(), ["notes.txt"]);
+    // No name starts with "np", so the next one after it is chosen.
+    ui.type_text("p");
+    assert_eq!(ui.selected(), ["Projects"]);
+
+    ui.cx
+        .executor()
+        .advance_clock(std::time::Duration::from_secs(2));
+    ui.type_text("zz");
+    assert_eq!(
+        ui.selected(),
+        ["Roadmap.md"],
+        "past the end picks the last item"
+    );
+
+    // Typing in the search field searches instead.
+    ui.click("search");
+    ui.type_text("b");
+    assert_eq!(ui.read(|f| f.query().to_string()), "b");
+    ui.press("escape");
+
+    // The column view selects in the active column.
+    ui.press(&cmd("3"));
+    ui.update(|f, window, cx| f.focus_files(window, cx));
+    ui.cx
+        .executor()
+        .advance_clock(std::time::Duration::from_secs(2));
+    ui.type_text("p");
+    assert_eq!(ui.selected(), ["Projects"]);
+    assert_eq!(
+        ui.read(|f| f.column_names_for_test()).len(),
+        2,
+        "the folder opens to the right"
+    );
 }

@@ -164,7 +164,7 @@ mod tests {
 
     #[test]
     fn lists_temp_dir() {
-        let dir = std::env::temp_dir().join(format!("fff-finder-list-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("fff-Finder-list-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("sub")).unwrap();
         std::fs::write(dir.join("b.txt"), "hello").unwrap();
         std::fs::write(dir.join(".hidden"), "x").unwrap();

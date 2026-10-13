@@ -4,11 +4,11 @@
 
 #![allow(dead_code)]
 
-use fff_finder_app::finder::{AppState, Finder, PickerOptions};
-use fff_finder_app::model::Location;
-use fff_finder_app::system::{Recorder, SystemCall};
-use fff_finder_core::terminals::Terminal;
-use fff_finder_core::{Appearance, Engine, EngineOptions};
+use fff_Finder::finder::{AppState, Finder, PickerOptions};
+use fff_Finder::model::Location;
+use fff_Finder::system::{Recorder, SystemCall};
+use fff_Finder_core::terminals::Terminal;
+use fff_Finder_core::{Appearance, Engine, EngineOptions};
 use gpui_kit::base::test_support::{self, ElementSnapshot};
 use gpui_kit::component::WindowExt as _;
 use gpui_kit::test::TestWindowExt as _;
@@ -35,7 +35,7 @@ impl Fixture {
     /// Budget.csv  Projects/atlas/Project Atlas.txt  Roadmap.md  notes.txt  .secret
     /// ```
     pub fn new(name: &str) -> Fixture {
-        let dir = std::env::temp_dir().join(format!("fff-finder-ui-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("fff-Finder-ui-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("Projects/atlas")).unwrap();
         std::fs::write(dir.join("Budget.csv"), "a,b\n1,2\n").unwrap();
@@ -63,10 +63,13 @@ fn isolate_settings() {
     static CONFIG: OnceLock<PathBuf> = OnceLock::new();
     CONFIG.get_or_init(|| {
         let config =
-            std::env::temp_dir().join(format!("fff-finder-ui-config-{}", std::process::id()));
+            std::env::temp_dir().join(format!("fff-Finder-ui-config-{}", std::process::id()));
         std::fs::create_dir_all(&config).unwrap();
         // SAFETY: runs once, inside the OnceLock, before any test reads the variable.
-        unsafe { std::env::set_var("FFFFINDER_CONFIG_DIR", &config) };
+        unsafe {
+            std::env::set_var("FFF_FINDER_CONFIG_DIR", &config);
+            std::env::set_var("FFF_FINDER_DATA_DIR", config.join("data"));
+        }
         config
     });
 }
@@ -145,12 +148,13 @@ impl<'a> Ui<'a> {
             roots: vec![dir.to_path_buf()],
             db_dir: None,
             watch: false,
+            search: Default::default(),
         });
         assert!(engine.wait_ready(Duration::from_secs(20)));
         let nu = options.nu;
         let terminals = Some(options.terminals);
         cx.update(|cx| {
-            fff_finder_app::init(
+            fff_Finder::init(
                 cx,
                 AppState {
                     engine,
@@ -160,6 +164,9 @@ impl<'a> Ui<'a> {
                 Appearance::Light,
             );
             cx.set_global(Recorder::default());
+            // Dialogs slide in on a wall-clock animation; under load a click
+            // could land while one is still moving.
+            cx.set_reduce_motion(true);
         });
         let start = Location::Folder(dir.to_path_buf());
         let picker = options.picker;
@@ -364,6 +371,11 @@ impl<'a> Ui<'a> {
     }
 
     /// Files handed to the system (open, reveal) so far.
+    /// Act as if no app is registered to open `path`.
+    pub fn set_no_app(&mut self, path: &Path) {
+        self.cx.read(|cx| cx.global::<Recorder>().set_no_app(path));
+    }
+
     pub fn system_calls(&self) -> Vec<SystemCall> {
         self.cx.read(|cx| cx.global::<Recorder>().calls())
     }
@@ -481,5 +493,5 @@ pub fn at(x: f32, y: f32) -> Point<Pixels> {
 }
 
 pub fn item_id(kind: &'static str, path: &Path) -> ElementId {
-    (kind, fff_finder_app::finder::path_id(path)).into()
+    (kind, fff_Finder::finder::path_id(path)).into()
 }

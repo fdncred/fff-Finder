@@ -1,9 +1,9 @@
 //! Nushell integration that doesn't need GPUI: locating `nu`, running a
 //! pipeline over the selected files, previewing structured files with
 //! `open`, and NUON formatting. Terminals live in
-//! `fff_finder_core::terminals`.
+//! `fff_Finder_core::terminals`.
 
-use fff_finder_core::{FileEntry, format};
+use fff_Finder_core::{FileEntry, format};
 use serde_json::Value as Json;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -108,17 +108,199 @@ def fff-render [] {
 }
 "#;
 
+/// Reads the entries from stdin as a table with sizes and dates turned back
+/// into Nushell types.
+const TYPED_INPUT: &str = "$in | from json \
+    | update size {|r| if $r.size == null { null } else { $r.size | into filesize } } \
+    | update modified {|r| if $r.modified == null { null } else { $r.modified | into datetime } }";
+
+/// Longest a filter may run before it is stopped.
+pub const FILTER_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// The paths of the entries a filter keeps. `filter` is a `where` condition
+/// (`size > 1mb and kind == Folder`) or, starting with `|`, a pipeline whose
+/// rows keep their `path` column.
+pub fn filter_paths(
+    nu: &Path,
+    filter: &str,
+    entries: &[FileEntry],
+    cwd: &Path,
+) -> Result<Vec<PathBuf>, String> {
+    let filter = filter.trim();
+    let stage = if filter.starts_with('|') {
+        filter.to_string()
+    } else {
+        format!("| where {filter}")
+    };
+    let script = format!("{TYPED_INPUT}\n{stage}\n| get path | to json --raw");
+    let out = exec(
+        nu,
+        &script,
+        Some(entries_json(entries)),
+        cwd,
+        &[],
+        Some(FILTER_TIMEOUT),
+    )?;
+    serde_json::from_str::<Vec<String>>(out.trim())
+        .map(|paths| paths.into_iter().map(PathBuf::from).collect())
+        .map_err(|_| "The filter must keep rows with a path column.".to_string())
+}
+
+/// The new names a rename closure gives the entries, in order. Each item has
+/// the usual columns plus `stem`, `ext`, and a 1-based `index`; the closure
+/// may take it as a parameter (`{|f| $f.name }`) or as `$in`. Text that
+/// isn't a closure is treated as its body, with the item as `$f`.
+pub fn rename_names(
+    nu: &Path,
+    closure: &str,
+    entries: &[FileEntry],
+    cwd: &Path,
+) -> Result<Vec<String>, String> {
+    let closure = closure.trim();
+    let closure = if closure.starts_with('{') {
+        closure.to_string()
+    } else {
+        format!("{{|f| {closure} }}")
+    };
+    let script = format!(
+        "let rename = {closure}\n\
+         {TYPED_INPUT} | enumerate | each {{|it| \
+             let parts = $it.item.name | path parse; \
+             $it.item | insert index ($it.index + 1) | insert stem $parts.stem \
+                 | insert ext ($parts.extension? | default '') \
+         }} | each {{|f| $f | do $rename $f | into string }} | to json --raw"
+    );
+    let out = exec(
+        nu,
+        &script,
+        Some(entries_json(entries)),
+        cwd,
+        &[],
+        Some(FILTER_TIMEOUT),
+    )?;
+    let names: Vec<String> = serde_json::from_str(out.trim())
+        .map_err(|_| "The closure must return a name for each item.".to_string())?;
+    if names.len() != entries.len() {
+        return Err("The closure must return one name per item.".into());
+    }
+    Ok(names)
+}
+
+/// `source` highlighted by `nu-highlight` in a login shell, so the user's
+/// `color_config` applies. Returns the ANSI-colored text.
+pub fn highlight_nu(nu: &Path, source: &str) -> Result<String, String> {
+    let child = Command::new(nu)
+        .args([
+            "--login",
+            "--stdin",
+            "-c",
+            "$env.config.use_ansi_coloring = true; $in | nu-highlight",
+        ])
+        .env_remove("NO_COLOR")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|err| format!("could not run {}: {err}", nu.display()))?;
+    let output = wait_for(child, Some(source.to_string()), Some(PREVIEW_TIMEOUT))
+        .map_err(|err| err.to_string())?
+        .ok_or_else(|| "nu-highlight took too long".to_string())?;
+    if !output.status.success() {
+        return Err(strip_ansi(&String::from_utf8_lossy(&output.stderr)));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// The comments in `nu-highlight` output. Nushell has no comment style, so
+/// it leaves them plain: a comment is a `#` that starts a word and runs to the
+/// end of its line without touching anything `styled`. Strings, raw strings
+/// and interpolations that contain `#` are all styled, so they never match.
+pub fn comment_ranges(
+    text: &str,
+    styled: &[std::ops::Range<usize>],
+) -> Vec<std::ops::Range<usize>> {
+    let bytes = text.as_bytes();
+    let mut comments = Vec::new();
+    let mut line_start = 0;
+    for line in text.split_inclusive('\n') {
+        let line_end = line_start + line.trim_end_matches(['\n', '\r']).len();
+        let starts_word = |i: usize| {
+            i == line_start
+                || bytes[i - 1].is_ascii_whitespace()
+                || b";|({[".contains(&bytes[i - 1])
+        };
+        let comment = (line_start..line_end)
+            .filter(|&i| bytes[i] == b'#' && starts_word(i))
+            .find(|&i| !styled.iter().any(|r| r.start < line_end && r.end > i));
+        if let Some(start) = comment {
+            comments.push(start..line_end);
+        }
+        line_start += line.len();
+    }
+    comments
+}
+
+/// Run a script with no input; returns its stdout or its error message.
+pub fn run_raw(nu: &Path, script: &str, cwd: &Path) -> Result<String, String> {
+    exec(nu, script, None, cwd, &[], Some(FILTER_TIMEOUT))
+}
+
+/// Run a script and return its stdout, or its error message.
+fn exec(
+    nu: &Path,
+    script: &str,
+    stdin: Option<String>,
+    cwd: &Path,
+    env: &[(&str, &std::ffi::OsStr)],
+    timeout: Option<Duration>,
+) -> Result<String, String> {
+    let mut cmd = Command::new(nu);
+    cmd.arg("--no-config-file");
+    if stdin.is_some() {
+        cmd.arg("--stdin");
+    }
+    cmd.arg("-c")
+        .arg(script)
+        .current_dir(cwd)
+        .env("NO_COLOR", "1")
+        .stdin(if stdin.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    for (key, value) in env {
+        cmd.env(key, value);
+    }
+    let output = cmd
+        .spawn()
+        .and_then(|child| wait_for(child, stdin, timeout))
+        .map_err(|err| format!("could not run {}: {err}", nu.display()))?
+        .ok_or_else(|| {
+            format!(
+                "nu took longer than {} s and was stopped",
+                timeout.unwrap_or_default().as_secs()
+            )
+        })?;
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    } else {
+        let stderr = strip_ansi(&String::from_utf8_lossy(&output.stderr));
+        Err(if stderr.trim().is_empty() {
+            format!("nu exited with {}", output.status)
+        } else {
+            stderr.trim().to_string()
+        })
+    }
+}
+
 /// Run a user pipeline with the entries as its input table.
 ///
 /// The pipeline is the user's own code; the entries travel on stdin as JSON,
 /// never spliced into the script.
 pub fn run_pipeline(nu: &Path, pipeline: &str, entries: &[FileEntry], cwd: &Path) -> NuRun {
-    // `($in | from json)` converts sizes and dates back into Nushell types.
-    let script = format!(
-        "$in | from json | update size {{|r| if $r.size == null {{ null }} else {{ $r.size | into filesize }} }} \
-         | update modified {{|r| if $r.modified == null {{ null }} else {{ $r.modified | into datetime }} }} \
-         | do {{\n{pipeline}\n}} | fff-render | to json --raw"
-    );
+    let script = format!("{TYPED_INPUT} | do {{\n{pipeline}\n}} | fff-render | to json --raw");
     let script = format!("{PRELUDE}\n{script}");
     run_script(nu, &script, Some(entries_json(entries)), cwd, &[], None)
 }
@@ -416,6 +598,29 @@ pub fn to_nuon(paths: &[PathBuf]) -> String {
 mod tests {
     use super::*;
 
+    #[test]
+    fn finds_comments_nu_highlight_left_plain() {
+        let text = "# top\nlet x = 1 # trailing\n\"a # b\" #c\nls#not\n  # indented\r\n";
+        let at = |needle: &str| {
+            let start = text.find(needle).unwrap();
+            start..start + needle.len()
+        };
+        // What nu-highlight colors: `let`, `x`, `1`, the string, and `ls#not`.
+        let styled = [
+            at("let"),
+            at("x ="),
+            at("1 "),
+            at("\"a # b\""),
+            at("ls#not"),
+        ];
+        let found: Vec<&str> = comment_ranges(text, &styled)
+            .into_iter()
+            .map(|r| &text[r])
+            .collect();
+        assert_eq!(found, ["# top", "# trailing", "#c", "# indented"]);
+        assert!(comment_ranges("", &[]).is_empty());
+    }
+
     #[cfg(unix)]
     #[test]
     fn a_slow_child_is_stopped_at_the_timeout() {
@@ -461,6 +666,63 @@ mod tests {
     #[test]
     fn strips_ansi() {
         assert_eq!(strip_ansi("\u{1b}[31mError\u{1b}[0m: x"), "Error: x");
+    }
+
+    /// Runs only where `nu` is installed.
+    #[test]
+    fn filters_with_real_nu() {
+        let Some(nu) = find_nu(None) else { return };
+        let dir = std::env::temp_dir().join(format!("fff-nu-filter-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let small = dir.join("small.txt");
+        let big = dir.join("big.log");
+        std::fs::write(&small, "x").unwrap();
+        std::fs::write(&big, "y".repeat(5000)).unwrap();
+        let entries: Vec<FileEntry> = [&small, &big]
+            .iter()
+            .map(|p| FileEntry::from_path(p).unwrap())
+            .collect();
+
+        assert_eq!(
+            filter_paths(&nu, "size > 1kb", &entries, &dir).unwrap(),
+            std::slice::from_ref(&big)
+        );
+        assert_eq!(
+            filter_paths(
+                &nu,
+                "name =~ 'small' and modified > 2020-01-01",
+                &entries,
+                &dir
+            )
+            .unwrap(),
+            std::slice::from_ref(&small)
+        );
+        assert_eq!(
+            filter_paths(&nu, "| sort-by size --reverse | first 1", &entries, &dir).unwrap(),
+            std::slice::from_ref(&big)
+        );
+        assert!(
+            filter_paths(&nu, "size > 1tb", &entries, &dir)
+                .unwrap()
+                .is_empty()
+        );
+        let typo = filter_paths(&nu, "sise > 1kb", &entries, &dir).unwrap_err();
+        assert!(typo.contains("sise"), "{typo}");
+        let dropped = filter_paths(&nu, "| select name", &entries, &dir).unwrap_err();
+        assert!(dropped.contains("path"), "{dropped}");
+
+        let names = |closure: &str| rename_names(&nu, closure, &entries, &dir);
+        assert_eq!(
+            names("{|f| $f.name | str upcase }").unwrap(),
+            ["SMALL.TXT", "BIG.LOG"]
+        );
+        assert_eq!(names("{ $in.stem }").unwrap(), ["small", "big"]);
+        assert_eq!(
+            names("$\"($f.index) ($f.stem).($f.ext)\"").unwrap(),
+            ["1 small.txt", "2 big.log"]
+        );
+        assert!(names("{|f| $f.nope }").unwrap_err().contains("nope"));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// Runs only where `nu` is installed.

@@ -12,9 +12,9 @@
 //! clicks an element by ID, `type:<text>` types into the focused field, and
 //! `wait:<ms>` pauses.
 
-use fff_finder_app::finder::AppState;
-use fff_finder_app::model::Location;
-use fff_finder_core::{Config, Engine, EngineOptions};
+use fff_Finder::finder::AppState;
+use fff_Finder::model::Location;
+use fff_Finder_core::{Config, Engine, EngineOptions};
 use gpui_kit::component::WindowExt as _;
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::*;
@@ -25,19 +25,20 @@ fn main() {
     let config = Config::load();
     let engine = Engine::new(EngineOptions {
         roots: config.search_roots.clone(),
-        db_dir: Some(fff_finder_core::config::data_dir().join("gui")),
+        db_dir: Some(fff_Finder_core::config::data_dir().join("gui")),
         watch: true,
+        search: Default::default(),
     });
-    let nu = fff_finder_app::nushell::find_nu(config.nu_path.as_deref());
-    let start = fff_finder_app::start_location(None, &config);
+    let nu = fff_Finder::nushell::find_nu(config.nu_path.as_deref());
+    let start = fff_Finder::start_location(None, &config);
 
     gpui_kit::application()
-        .with_assets(fff_finder_app::assets::AppAssets)
+        .with_assets(fff_Finder::assets::AppAssets)
         .run(move |cx: &mut App| {
-            fff_finder_app::init(cx, AppState { engine, nu, terminals: None }, config.appearance);
-            fff_finder_app::watchdog::start(cx);
-            cx.on_action(|_: &fff_finder_app::actions::Quit, cx: &mut App| cx.quit());
-            let Some((handle, view)) = fff_finder_app::open_window(start, None, None, cx) else {
+            fff_Finder::init(cx, AppState { engine, nu, terminals: None }, config.appearance);
+            fff_Finder::watchdog::start(cx);
+            cx.on_action(|_: &fff_Finder::actions::Quit, cx: &mut App| cx.quit());
+            let Some((handle, view)) = fff_Finder::open_window(start, None, None, cx) else {
                 return;
             };
             view.update(cx, |f, _| f.set_persist(false));
@@ -70,6 +71,7 @@ fn main() {
                             let place = match f.location() {
                                 Location::Folder(p) => p.display().to_string(),
                                 Location::Recents => "Recents".into(),
+                                Location::Results { title, .. } => title.clone(),
                             };
                             format!(
                                 "view={:?} hidden={} dialog={} files-focused={} rows={} selected={} in {place}",

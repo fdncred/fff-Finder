@@ -5,15 +5,16 @@
 mod common;
 
 use common::{Fixture, Open, Ui, at, cmd, item_id};
-use fff_finder_app::actions::*;
-use fff_finder_app::finder::{PickerOptions, SearchScope};
-use fff_finder_app::model::Location;
-use fff_finder_app::system::SystemCall;
-use fff_finder_core::terminals::{Launch, Terminal};
-use fff_finder_core::{Appearance, KindFilter, SortKey, ViewMode};
+use fff_Finder::actions::*;
+use fff_Finder::finder::{PickerOptions, SearchScope};
+use fff_Finder::model::Location;
+use fff_Finder::system::SystemCall;
+use fff_Finder_core::terminals::{Launch, Terminal};
+use fff_Finder_core::{Appearance, KindFilter, SortKey, ViewMode};
 use gpui_kit::Action as _;
 use gpui_kit::TestAppContext;
 use gpui_kit::component::ActiveTheme as _;
+use serde_json::json;
 use std::path::PathBuf;
 
 // ----- toolbar -------------------------------------------------------------------
@@ -156,7 +157,7 @@ fn actions_menu_items(cx: &mut TestAppContext) {
     assert_eq!(ui.clipboard(), fx.path("Roadmap.md").display().to_string());
 
     ui.click("actions");
-    ui.click_menu_item(fff_finder_app::finder::reveal_label());
+    ui.click_menu_item(fff_Finder::finder::reveal_label());
     assert_eq!(
         ui.system_calls(),
         [SystemCall::Reveal(fx.path("Roadmap.md"))]
@@ -229,6 +230,8 @@ fn every_menu_bar_action_has_a_handler(cx: &mut TestAppContext) {
         GoToFolder.boxed_clone(),
         ToggleNuPanel.boxed_clone(),
         OpenInNushell.boxed_clone(),
+        ToggleFilter.boxed_clone(),
+        OpenInEditor.boxed_clone(),
     ];
     // Menus send actions to whatever has focus: the files, or a text field.
     for focus in ["files", "search"] {
@@ -354,7 +357,7 @@ fn path_bar_crumbs_navigate(cx: &mut TestAppContext) {
     let mut ui = Ui::open(cx, &fx.dir);
     let atlas = fx.path("Projects/atlas");
     ui.go_to(&atlas);
-    let crumbs = fff_finder_core::places::breadcrumbs(&atlas).len();
+    let crumbs = fff_Finder_core::places::breadcrumbs(&atlas).len();
     ui.click(("crumb", crumbs - 2));
     assert_eq!(ui.folder(), Some(fx.path("Projects")));
 }
@@ -568,7 +571,7 @@ fn settings_dialog_controls(cx: &mut TestAppContext) {
     ui.click_without_settling("reset-roots");
     assert_eq!(
         ui.read(|f| f.config().search_roots.clone()),
-        fff_finder_core::config::default_search_roots()
+        fff_Finder_core::config::default_search_roots()
     );
     ui.update(|f, _, cx| f.set_search_roots(vec![root.clone()], cx));
 
@@ -582,6 +585,97 @@ fn settings_dialog_controls(cx: &mut TestAppContext) {
     ui.press(&cmd(","));
     ui.close_dialog();
     assert!(!ui.dialog_open(), "the close button closes Settings");
+}
+
+#[gpui_kit::test]
+fn settings_text_sizes(cx: &mut TestAppContext) {
+    let fx = Fixture::new("text-sizes");
+    let mut ui = Ui::open(cx, &fx.dir);
+    ui.click("view-list");
+    let row = item_id("row", &fx.path("notes.txt"));
+    let row_height = |ui: &mut Ui| ui.snapshot(row.clone()).bounds().size.height;
+    let font = |ui: &mut Ui| ui.window(|_, cx| cx.theme().font_size);
+    let (height, size) = (row_height(&mut ui), font(&mut ui));
+    ui.press(&cmd(","));
+
+    // Text size scales the window's own layout and the kit's controls.
+    assert_eq!(ui.snapshot("ui-text-reset").label(), Some("100%"));
+    ui.click("ui-text-bigger");
+    ui.click("ui-text-bigger");
+    assert_eq!(ui.read(|f| f.config().ui_scale), 1.2);
+    assert_eq!(ui.snapshot("ui-text-reset").label(), Some("120%"));
+    assert_eq!(font(&mut ui), size * 1.2);
+    // Switching light and dark reloads the theme; the scale applies once.
+    ui.close_dialog();
+    ui.press(&cmd("shift-d"));
+    ui.press(&cmd("shift-d"));
+    assert_eq!(font(&mut ui), size * 1.2, "not scaled twice");
+    ui.press(&cmd(","));
+    ui.click("ui-text-smaller");
+    assert_eq!(ui.read(|f| f.config().ui_scale), 1.1);
+    ui.close_dialog();
+    // Layout snaps to half pixels.
+    let grown = f32::from(row_height(&mut ui)) / f32::from(height);
+    assert!((grown - 1.1).abs() < 0.03, "rows grow with it: {grown}");
+
+    // Nushell text size has its own row; both reset from their labels.
+    ui.press(&cmd(","));
+    ui.click("nu-text-bigger");
+    assert_eq!(ui.read(|f| f.config().nu_font_size), 13.);
+    assert_eq!(ui.snapshot("nu-text-reset").label(), Some("13 pt"));
+    ui.click("nu-text-reset");
+    ui.click("ui-text-reset");
+    assert_eq!(ui.read(|f| f.config().nu_font_size), 12.);
+    assert_eq!(ui.read(|f| f.config().ui_scale), 1.0);
+    assert_eq!(font(&mut ui), size, "the theme's font size comes back");
+    ui.close_dialog();
+    assert_eq!(row_height(&mut ui), height);
+}
+
+#[gpui_kit::test]
+fn settings_search_engine(cx: &mut TestAppContext) {
+    use fff_Finder::finder::AppState;
+    use fff_Finder_core::SearchCase;
+    let fx = Fixture::new("search-engine");
+    let mut ui = Ui::open(cx, &fx.dir);
+    let engine = ui.window(|_, cx| cx.global::<AppState>().engine.clone());
+    let search = |ui: &Ui| ui.read(|f| f.config().search.clone());
+    ui.press(&cmd(","));
+
+    // A switch that shapes the index rebuilds it; searching still works.
+    ui.click("follow-symlinks");
+    assert!(search(&ui).follow_symlinks);
+    assert!(engine.wait_ready(std::time::Duration::from_secs(20)));
+    ui.settle();
+    assert!(
+        engine.search_settings().follow_symlinks,
+        "the engine has it"
+    );
+    ui.click("git-recency");
+    assert!(!search(&ui).git_recency);
+
+    ui.click("case-sensitive");
+    assert_eq!(search(&ui).case, SearchCase::Sensitive);
+    ui.click("time-limit-less");
+    assert_eq!(search(&ui).time_limit_secs, 2);
+    assert_eq!(ui.snapshot("time-limit-value").label(), Some("2 s"));
+    ui.click("threads-more");
+    assert_eq!(search(&ui).threads, 1);
+    ui.click("max-file-size-more");
+    assert_eq!(search(&ui).max_file_size_mb, 20);
+    ui.click("result-limit-more");
+    assert_eq!(ui.read(|f| f.config().result_limit), 1000);
+    assert_eq!(engine.search_settings(), search(&ui));
+    ui.close_dialog();
+
+    assert!(engine.wait_ready(std::time::Duration::from_secs(20)));
+    ui.click("search");
+    ui.type_text("notes");
+    assert!(
+        ui.names().contains(&"notes.txt".to_string()),
+        "{:?}",
+        ui.names()
+    );
 }
 
 #[gpui_kit::test]
@@ -821,12 +915,113 @@ fn quick_look_buttons_and_keys(cx: &mut TestAppContext) {
     assert!(ui.dialog_open(), "and Space opens it again");
 }
 
+#[gpui_kit::test]
+fn files_no_app_claims_open_in_an_editor(cx: &mut TestAppContext) {
+    use fff_Finder::nu_env::NuEnv;
+    let fx = Fixture::new("no-app");
+    std::fs::write(fx.path("blob.bin"), [0u8, 159, 146, 150, 0, 1]).unwrap();
+    let mut ui = Ui::open(cx, &fx.dir);
+    let (roadmap, notes, blob) = (
+        fx.path("Roadmap.md"),
+        fx.path("notes.txt"),
+        fx.path("blob.bin"),
+    );
+    ui.set_no_app(&roadmap);
+    ui.set_no_app(&blob);
+
+    // Quick Look's Open hands an unclaimed text file to the text editor.
+    ui.select("Roadmap.md");
+    ui.press("space");
+    ui.click("ql-open");
+    assert!(!ui.dialog_open());
+    assert_eq!(ui.system_calls(), [SystemCall::EditText(roadmap.clone())]);
+
+    // A file with an app opens in it; a binary no app claims doesn't open.
+    ui.select("notes.txt");
+    ui.press("enter");
+    ui.select("blob.bin");
+    ui.press("enter");
+    ui.dispatch(OpenInEditor);
+    assert_eq!(
+        ui.system_calls(),
+        [
+            SystemCall::EditText(roadmap.clone()),
+            SystemCall::Open(notes)
+        ]
+    );
+
+    // "Open in Editor" without Nushell's editor does the same as Open.
+    ui.select("Roadmap.md");
+    ui.dispatch(OpenInEditor);
+    assert_eq!(
+        ui.system_calls().last(),
+        Some(&SystemCall::EditText(roadmap.clone()))
+    );
+
+    // With Nushell's editor on, Return opens the file in that editor.
+    let env = NuEnv {
+        buffer_editor: Some(json!(["code", "--wait"])),
+        ..Default::default()
+    };
+    ui.update(|f, _, cx| f.set_nu_env_for_test(env, cx));
+    ui.press("enter");
+    assert_eq!(
+        ui.system_calls().last(),
+        Some(&SystemCall::Terminal {
+            program: "code".into(),
+            args: vec!["--wait".into(), roadmap.display().to_string()],
+        })
+    );
+}
+
+#[gpui_kit::test]
+fn quick_look_text_size(cx: &mut TestAppContext) {
+    let fx = Fixture::new("quick-look-text");
+    let mut ui = Ui::open(cx, &fx.dir);
+    let size = |ui: &Ui| ui.read(|f| f.config().preview_font_size);
+    ui.select("Roadmap.md");
+    ui.press("space");
+    assert_eq!(size(&ui), 11.5);
+    assert_eq!(ui.snapshot("ql-text-reset").label(), Some("11.5 pt"));
+
+    ui.click("ql-text-bigger");
+    assert_eq!(size(&ui), 12.5);
+    assert_eq!(ui.snapshot("ql-text-reset").label(), Some("12.5 pt"));
+    ui.press(&cmd("="));
+    assert_eq!(size(&ui), 13.5);
+    ui.press(&cmd("-"));
+    ui.click("ql-text-smaller");
+    assert_eq!(size(&ui), 11.5);
+    ui.press(&cmd("="));
+    ui.click("ql-text-reset");
+    assert_eq!(size(&ui), 11.5, "the size label resets it");
+    ui.press(&cmd("="));
+    ui.press(&cmd("0"));
+    assert_eq!(size(&ui), 11.5, "and so does Cmd-0");
+
+    ui.update(|f, _, cx| f.set_preview_font_size(Some(31.5), cx));
+    ui.press(&cmd("="));
+    ui.press(&cmd("="));
+    assert_eq!(size(&ui), 32., "it stops at the largest size");
+
+    assert!(ui.dialog_open());
+    ui.press("space");
+    assert!(!ui.dialog_open(), "Space still closes it after the clicks");
+
+    ui.select("Projects");
+    ui.press("space");
+    assert!(ui.dialog_open());
+    assert!(!ui.exists("ql-text-bigger"), "a folder has no text to size");
+    ui.press("space");
+    assert_eq!(size(&ui), 32., "the size stays for the next preview");
+}
+
 // ----- Nushell panel -----------------------------------------------------------------
 
 #[gpui_kit::test]
 fn nushell_panel_controls(cx: &mut TestAppContext) {
     let fx = Fixture::new("nu-panel");
-    let nu = fff_finder_app::nushell::find_nu(None);
+    let nu = fff_Finder::nushell::find_nu(None);
     let have_nu = nu.is_some();
     let mut ui = Ui::open_with(
         cx,
@@ -860,6 +1055,19 @@ fn nushell_panel_controls(cx: &mut TestAppContext) {
 
     ui.click("nu-run");
     assert!(!ui.read(|f| f.nu_busy()));
+    assert!(
+        !ui.exists(("nu-example", 0usize)),
+        "a result replaces the examples"
+    );
+
+    // Clear empties the field and brings the examples back.
+    ui.click("nu-clear");
+    assert!(ui.exists(("nu-example", 0usize)));
+    assert_eq!(ui.update(|f, _, cx| f.nu_pipeline(cx)), "");
+    ui.click(("nu-example", 1usize));
+    assert!(!ui.exists(("nu-example", 0usize)));
+    assert!(!ui.update(|f, _, cx| f.nu_pipeline(cx)).is_empty());
+
     ui.click("nu-close");
     assert!(!ui.read(|f| f.nu_panel_open()));
     assert!(ui.files_focused());
@@ -887,4 +1095,310 @@ fn picker_bar_enables_choose_with_a_selection(cx: &mut TestAppContext) {
     assert_eq!(ui.snapshot("picker-choose").label(), Some("Choose"));
     ui.select_also("notes.txt");
     assert_eq!(ui.snapshot("picker-choose").label(), Some("Choose 2 Items"));
+}
+
+#[gpui_kit::test]
+fn nushell_filter_and_smart_folders(cx: &mut TestAppContext) {
+    let Some(nu) = fff_Finder::nushell::find_nu(None) else {
+        eprintln!("nu not installed; skipping");
+        return;
+    };
+    let fx = Fixture::new("filter");
+    std::fs::write(fx.path("big.log"), "x".repeat(20_000)).unwrap();
+    let mut ui = Ui::open_with(
+        cx,
+        &fx.dir,
+        Open {
+            nu: Some(nu),
+            ..Default::default()
+        },
+    );
+    ui.press(&cmd("alt-f"));
+    assert!(ui.exists("filter-input"), "Cmd-Alt-F opens the filter bar");
+    ui.type_text("size > 10kb");
+    ui.press("enter");
+    assert_eq!(ui.names(), ["big.log"]);
+
+    // A mistake shows Nushell's message and leaves the items alone.
+    ui.press(&cmd("a"));
+    ui.type_text("sise > 10kb");
+    ui.press("enter");
+    assert!(ui.exists("filter-error"));
+    assert_eq!(ui.names().len(), 5);
+    ui.press(&cmd("a"));
+    ui.type_text("| sort-by size --reverse | first 2");
+    ui.press("enter");
+    assert!(!ui.exists("filter-error"));
+    assert_eq!(ui.names().len(), 2, "a pipeline works too");
+    ui.press(&cmd("a"));
+    ui.type_text("size > 10kb");
+    ui.press("enter");
+
+    // Searches are filtered too, and can be saved.
+    ui.click("search");
+    ui.type_text("log");
+    assert_eq!(ui.names(), ["big.log"]);
+    ui.click("save-smart-folder");
+    assert!(ui.dialog_open());
+    ui.type_text("Big logs");
+    ui.click("smart-save");
+    assert!(!ui.dialog_open());
+    let saved = ui.read(|f| f.smart_folders().to_vec());
+    assert_eq!(saved.len(), 1);
+    assert_eq!(
+        (
+            saved[0].name.as_str(),
+            saved[0].query.as_str(),
+            saved[0].filter.as_deref()
+        ),
+        ("Big logs", "log", Some("size > 10kb"))
+    );
+
+    ui.click("close-filter");
+    assert!(!ui.exists("filter-input"));
+    assert_eq!(ui.read(|f| f.filter_text().to_string()), "");
+    ui.click("search");
+    ui.press("escape");
+    assert!(!ui.read(|f| f.is_searching()));
+
+    // The sidebar runs it again: search, filter, and all.
+    ui.click(("smart", 0usize));
+    assert_eq!(ui.read(|f| f.query().to_string()), "log");
+    assert_eq!(ui.read(|f| f.filter_text().to_string()), "size > 10kb");
+    assert_eq!(ui.names(), ["big.log"]);
+    ui.right_click(("smart", 0usize));
+    ui.click_menu_item("Remove from Sidebar");
+    assert!(ui.read(|f| f.smart_folders().is_empty()));
+}
+
+#[gpui_kit::test]
+fn batch_rename_with_a_closure(cx: &mut TestAppContext) {
+    use fff_Finder::rename::Outcome;
+    let Some(nu) = fff_Finder::nushell::find_nu(None) else {
+        eprintln!("nu not installed; skipping");
+        return;
+    };
+    let fx = Fixture::new("batch-rename");
+    let mut ui = Ui::open_with(
+        cx,
+        &fx.dir,
+        Open {
+            nu: Some(nu),
+            ..Default::default()
+        },
+    );
+    ui.click("view-list");
+    ui.select("Budget.csv");
+    ui.select_also("notes.txt");
+    ui.right_click(item_id("row", &fx.path("notes.txt")));
+    assert!(ui.menu_labels().contains(&"Rename 2 Items…".to_string()));
+    ui.press("escape");
+
+    ui.press("f2");
+    assert!(ui.read(|f| f.batch_rename_open()));
+    let outcomes = |ui: &Ui| -> Vec<(String, Outcome)> {
+        match ui.read(|f| f.batch_preview_for_test()) {
+            Some(Ok(rows)) => rows.into_iter().map(|(_, new, o)| (new, o)).collect(),
+            other => panic!("no preview: {other:?}"),
+        }
+    };
+    // It starts as "keep every name": nothing to rename, so Rename does nothing.
+    assert!(outcomes(&ui).iter().all(|(_, o)| *o == Outcome::Unchanged));
+    ui.click("batch-apply");
+    assert!(ui.dialog_open());
+
+    ui.click(("batch-example", 0usize));
+    assert_eq!(
+        outcomes(&ui),
+        [
+            ("budget.csv".to_string(), Outcome::Rename),
+            ("notes.txt".to_string(), Outcome::Unchanged)
+        ]
+    );
+    assert!(ui.exists("batch-summary"));
+
+    ui.click("batch-closure");
+    ui.press(&cmd("a"));
+    ui.type_text("{|f| 'same.txt' }");
+    ui.press("enter");
+    assert!(ui.dialog_open(), "Return previews instead of renaming");
+    assert!(
+        outcomes(&ui)
+            .iter()
+            .all(|(_, o)| matches!(o, Outcome::Problem(_)))
+    );
+    ui.click("batch-apply");
+    assert!(fx.path("Budget.csv").exists(), "problems block the rename");
+
+    ui.press(&cmd("a"));
+    ui.type_text("{|f| $f.nope }");
+    ui.press("enter");
+    assert!(ui.exists("batch-error"));
+
+    ui.press(&cmd("a"));
+    ui.type_text("{|f| $\"($f.index)-($f.name)\" }");
+    ui.press("enter");
+    ui.click("batch-apply");
+    assert!(!ui.dialog_open());
+    assert!(fx.path("1-Budget.csv").exists() && fx.path("2-notes.txt").exists());
+    assert!(!fx.path("Budget.csv").exists());
+    assert!(ui.names().contains(&"1-Budget.csv".to_string()));
+
+    ui.select("1-Budget.csv");
+    ui.select_also("2-notes.txt");
+    ui.press("f2");
+    ui.click("batch-cancel");
+    assert!(
+        !ui.read(|f| f.batch_rename_open()),
+        "Cancel forgets the batch"
+    );
+    assert!(fx.path("1-Budget.csv").exists());
+}
+
+#[gpui_kit::test]
+fn nushell_actions_from_the_context_menu(cx: &mut TestAppContext) {
+    let Some(nu) = fff_Finder::nushell::find_nu(None) else {
+        eprintln!("nu not installed; skipping");
+        return;
+    };
+    let fx = Fixture::new("user-actions");
+    let mut ui = Ui::open_with(
+        cx,
+        &fx.dir,
+        Open {
+            nu: Some(nu),
+            ..Default::default()
+        },
+    );
+    let labels: Vec<String> =
+        ui.read(|f| f.user_actions().iter().map(|a| a.label.clone()).collect());
+    assert!(
+        labels.contains(&"Count Lines".to_string()),
+        "starters load: {labels:?}"
+    );
+    assert!(fff_Finder::user_actions::actions_path().exists());
+
+    ui.click("view-list");
+    ui.right_click(item_id("row", &fx.path("notes.txt")));
+    ui.click_menu_item("Nushell Actions");
+    // The items are drawn at the Nushell text size, so they're found by id.
+    let count_lines = labels.iter().position(|l| l == "Count Lines").unwrap();
+    let item = ui.snapshot(("nu-action", count_lines));
+    assert_eq!(item.label(), Some("Count Lines"));
+    assert!(ui.exists("nu-actions-edit"));
+    let height = item.bounds().size.height;
+    ui.click(("nu-action", count_lines));
+    assert!(ui.read(|f| f.nu_panel_open()));
+    assert!(!ui.read(|f| f.nu_busy()));
+    assert!(!ui.exists("nu-error"), "the action ran cleanly");
+
+    // The toolbar's Nushell menu has them too, bigger after Settings changes.
+    ui.update(|f, _, cx| f.set_nu_font_size(Some(20.), cx));
+    ui.click("nushell");
+    ui.click_menu_item("Nushell Actions");
+    let total = labels.iter().position(|l| l == "Total Size").unwrap();
+    assert_eq!(
+        ui.snapshot(("nu-action", total)).label(),
+        Some("Total Size")
+    );
+    let bigger = ui.snapshot(("nu-action", total)).bounds().size.height;
+    assert!(bigger > height, "{height:?} -> {bigger:?}");
+}
+
+#[gpui_kit::test]
+fn nushell_colors_and_editor(cx: &mut TestAppContext) {
+    use fff_Finder::nu_env::NuEnv;
+    let fx = Fixture::new("nu-env");
+    let term = Terminal {
+        id: "term".into(),
+        name: "Term".into(),
+        location: Some("/usr/bin/term".into()),
+        launch: Launch::Exec {
+            program: "/usr/bin/term".into(),
+            args: vec!["--cwd".into(), "{dir}".into(), "-e".into(), "{nu}".into()],
+        },
+    };
+    let mut ui = Ui::open_with(
+        cx,
+        &fx.dir,
+        Open {
+            terminals: vec![term],
+            ..Default::default()
+        },
+    );
+    let notes = fx.path("notes.txt");
+
+    // Off: files open in their default app, names use the theme.
+    ui.select("notes.txt");
+    ui.dispatch(OpenInEditor);
+    assert_eq!(ui.system_calls(), [SystemCall::Open(notes.clone())]);
+    assert!(ui.read(|f| f.rows_for_test().iter().all(|r| r.name_style.is_none())));
+
+    // On, with nvim: names colored like `ls`, the editor in the terminal.
+    let env = NuEnv {
+        ls_colors: Some("di=38;2;10;20;30:*.md=38;2;200;0;0".into()),
+        buffer_editor: Some(json!("nvim")),
+        ..Default::default()
+    };
+    ui.update(|f, _, cx| f.set_nu_env_for_test(env, cx));
+    let color = |ui: &Ui, name: &str| {
+        ui.read(|f| {
+            f.rows_for_test()
+                .iter()
+                .find(|r| r.entry.name == name)
+                .and_then(|r| r.name_style)
+                .and_then(|s| s.color)
+                .map(|c| {
+                    let c = gpui_kit::Rgba::from(c);
+                    (
+                        (c.r * 255.).round() as u8,
+                        (c.g * 255.).round() as u8,
+                        (c.b * 255.).round() as u8,
+                    )
+                })
+        })
+    };
+    assert_eq!(color(&ui, "Projects"), Some((10, 20, 30)));
+    assert_eq!(color(&ui, "Roadmap.md"), Some((200, 0, 0)));
+    assert_eq!(color(&ui, "Budget.csv"), None);
+
+    ui.select("notes.txt");
+    ui.dispatch(OpenInEditor);
+    let dir = fx.dir.display().to_string();
+    assert_eq!(
+        ui.system_calls().last(),
+        Some(&SystemCall::Terminal {
+            program: "/usr/bin/term".into(),
+            args: vec![
+                "--cwd".into(),
+                dir.clone(),
+                "-e".into(),
+                "nvim".into(),
+                notes.display().to_string()
+            ],
+        })
+    );
+
+    // A windowed editor starts directly, with its own arguments.
+    let env = NuEnv {
+        buffer_editor: Some(json!(["code", "--wait"])),
+        ..Default::default()
+    };
+    ui.update(|f, _, cx| f.set_nu_env_for_test(env, cx));
+    ui.right_click(item_id("tile", &notes));
+    ui.click_menu_item("Open in Editor");
+    assert_eq!(
+        ui.system_calls().last(),
+        Some(&SystemCall::Terminal {
+            program: "code".into(),
+            args: vec!["--wait".into(), notes.display().to_string()],
+        })
+    );
+
+    // The Settings switch turns it off again.
+    ui.press(&cmd(","));
+    assert!(ui.read(|f| f.config().use_nu_environment));
+    ui.click("use-nu-env");
+    assert!(!ui.read(|f| f.config().use_nu_environment));
+    assert_eq!(color(&ui, "Projects"), None);
 }

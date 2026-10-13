@@ -4,7 +4,8 @@
 use super::Finder;
 use crate::actions::*;
 use crate::theme::palette;
-use fff_finder_core::{SortKey, ViewMode};
+use crate::theme::ui;
+use fff_Finder_core::{SortKey, ViewMode};
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::{Button, ButtonRounded, ButtonVariants as _};
 use gpui_kit::component::input::Input;
@@ -23,9 +24,9 @@ pub const TRAFFIC_LIGHTS: f32 = 78.;
 pub fn pill(cx: &App) -> Div {
     let pal = palette(cx);
     h_flex()
-        .h(px(34.))
-        .p(px(2.))
-        .gap(px(2.))
+        .h(ui(34.))
+        .p(ui(2.))
+        .gap(ui(2.))
         .rounded_full()
         .bg(pal.pill)
         .border_1()
@@ -39,9 +40,9 @@ pub fn pill_button(id: impl Into<ElementId>, icon: impl Into<Icon>, cx: &App) ->
     Button::new(id)
         .ghost()
         .icon(icon)
-        .rounded(ButtonRounded::Size(px(15.)))
-        .w(px(36.))
-        .h(px(28.))
+        .rounded(ButtonRounded::Size(ui(15.)))
+        .w(ui(36.))
+        .h(ui(28.))
         .text_color(cx.theme().foreground)
 }
 
@@ -135,7 +136,7 @@ impl Finder {
         let sort_view = view.clone();
         let sort = pill(cx).child(
             pill_button("sort", Lucide::ArrowUpDown, cx)
-                .w(px(48.))
+                .w(ui(48.))
                 .dropdown_caret(true)
                 .tooltip("Sort and View Options")
                 .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, window, cx| {
@@ -146,7 +147,7 @@ impl Finder {
         let nu_view = view.clone();
         let nushell = pill(cx).child(
             pill_button("nushell", IconName::SquareTerminal, cx)
-                .w(px(48.))
+                .w(ui(48.))
                 .dropdown_caret(true)
                 .tooltip("Nushell")
                 .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, window, cx| {
@@ -157,7 +158,7 @@ impl Finder {
         let actions_view = view.clone();
         let actions = pill(cx).child(
             pill_button("actions", IconName::Ellipsis, cx)
-                .w(px(48.))
+                .w(ui(48.))
                 .dropdown_caret(true)
                 .tooltip("Actions")
                 .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, window, cx| {
@@ -166,7 +167,7 @@ impl Finder {
         );
 
         let search = h_flex()
-            .w(px(250.))
+            .w(ui(250.))
             .flex_shrink_0()
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             // Down arrow moves from the search field into the results.
@@ -191,7 +192,7 @@ impl Finder {
                             .text_color(cx.theme().muted_foreground),
                     )
                     .cleanable(true)
-                    .h(px(34.))
+                    .h(ui(34.))
                     .rounded_full()
                     .bg(pal.pill)
                     .border_color(pal.pill_border)
@@ -202,12 +203,13 @@ impl Finder {
         window_drag_area(
             h_flex()
                 .id("toolbar")
-                .h(px(TOOLBAR_HEIGHT))
+                .h(ui(TOOLBAR_HEIGHT))
                 .w_full()
                 .flex_shrink_0()
-                .pl(px(if traffic { TRAFFIC_LIGHTS } else { 12. }))
-                .pr(px(10.))
-                .gap(px(8.))
+                // macOS draws the window buttons at a fixed size.
+                .pl(if traffic { px(TRAFFIC_LIGHTS) } else { ui(12.) })
+                .pr(ui(10.))
+                .gap(ui(8.))
                 .when(!self.config.show_sidebar, |this| {
                     this.child(
                         pill(cx).child(
@@ -222,9 +224,9 @@ impl Finder {
                 .child(
                     div()
                         .flex_1()
-                        .min_w(px(60.))
-                        .pl(px(4.))
-                        .text_size(px(15.))
+                        .min_w(ui(60.))
+                        .pl(ui(4.))
+                        .text_size(ui(15.))
                         .font_weight(FontWeight::BOLD)
                         .truncate()
                         .child(title),
@@ -293,7 +295,7 @@ fn sort_menu(
                 .checked(hidden)
                 .action(Box::new(ToggleHidden)),
         )
-        .min_w(px(200.))
+        .min_w(ui(200.))
 }
 
 fn nushell_menu(
@@ -305,29 +307,30 @@ fn nushell_menu(
     let finder = view.read(cx);
     let has_selection = !finder.selected_entries().is_empty();
     let panel_open = finder.nu_open;
-    let _ = window;
-    menu.item(
-        PopupMenuItem::new("Open Nushell Here")
-            .icon(IconName::SquareTerminal)
-            .action(Box::new(OpenInNushell)),
-    )
-    .item(
-        PopupMenuItem::new(if panel_open {
-            "Hide Pipeline Panel"
-        } else {
-            "Run a Pipeline…"
-        })
-        .icon(Lucide::Terminal)
-        .action(Box::new(ToggleNuPanel)),
-    )
-    .separator()
-    .item(
-        PopupMenuItem::new("Copy as Nushell List")
-            .icon(IconName::Copy)
-            .disabled(!has_selection)
-            .action(Box::new(CopyAsNuon)),
-    )
-    .min_w(px(220.))
+    let menu = menu
+        .item(
+            PopupMenuItem::new("Open Nushell Here")
+                .icon(IconName::SquareTerminal)
+                .action(Box::new(OpenInNushell)),
+        )
+        .item(
+            PopupMenuItem::new(if panel_open {
+                "Hide Pipeline Panel"
+            } else {
+                "Run a Pipeline…"
+            })
+            .icon(Lucide::Terminal)
+            .action(Box::new(ToggleNuPanel)),
+        );
+    super::menus::actions_submenu(view, menu, window, cx)
+        .separator()
+        .item(
+            PopupMenuItem::new("Copy as Nushell List")
+                .icon(IconName::Copy)
+                .disabled(!has_selection)
+                .action(Box::new(CopyAsNuon)),
+        )
+        .min_w(ui(220.))
 }
 
 fn actions_menu(
@@ -394,6 +397,11 @@ fn actions_menu(
             .action(Box::new(MoveToTrash)),
     )
     .separator()
+    .item(
+        PopupMenuItem::new("Filter with Nushell…")
+            .icon(Lucide::Funnel)
+            .action(Box::new(ToggleFilter)),
+    )
     .item(PopupMenuItem::new("Go to Folder…").action(Box::new(GoToFolder)))
     .item(PopupMenuItem::new("Search Syntax…").action(Box::new(SearchHelp)))
     .item(
@@ -401,5 +409,5 @@ fn actions_menu(
             .icon(IconName::Settings)
             .action(Box::new(ShowSettings)),
     )
-    .min_w(px(220.))
+    .min_w(ui(220.))
 }

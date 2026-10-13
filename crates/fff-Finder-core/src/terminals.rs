@@ -74,7 +74,7 @@ pub const CUSTOM: &str = "custom";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Launch {
     /// macOS: `open -na <bundle> --args <args>`, so the terminal starts as
-    /// its own app instead of as a child of fffFinder.
+    /// its own app instead of as a child of fff-Finder.
     OpenApp { bundle: PathBuf, args: Vec<String> },
     /// macOS: open a `.command` script with the app. The script changes to
     /// the folder and runs `nu`. For Terminal, iTerm2, and terminals known
@@ -985,11 +985,70 @@ const GHOSTTY_SCRIPT: &[&str] = &[
     "end run",
 ];
 
+/// What a terminal runs: `nu` for "Open Nushell Here", or an editor and its
+/// file for "Open in Editor".
+#[derive(Debug, Clone, Copy)]
+struct Run<'a> {
+    program: &'a Path,
+    args: &'a [String],
+    /// Start `nu` as a login shell where the launch decides the flags.
+    login: bool,
+}
+
+impl Run<'_> {
+    /// Template arguments with `{dir}` filled in and a lone `{nu}` replaced by
+    /// the program followed by its arguments.
+    fn fill(&self, template: &[String], dir: &Path) -> Vec<String> {
+        let mut out = Vec::new();
+        for arg in template {
+            if arg == "{nu}" {
+                out.push(self.program.to_string_lossy().into_owned());
+                out.extend(self.args.iter().cloned());
+            } else {
+                out.push(fill(arg, self.program, dir));
+            }
+        }
+        out
+    }
+
+    /// The program and its arguments as one `/bin/sh` command.
+    fn shell_words(&self) -> String {
+        std::iter::once(self.program.to_string_lossy().into_owned())
+            .chain(self.args.iter().cloned())
+            .map(|w| sh_quote(&w))
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+}
+
 impl Terminal {
     /// The process that opens this terminal in `dir`, running `nu`.
     pub fn plan(&self, nu: &Path, dir: &Path) -> Plan {
+        self.plan_run(
+            Run {
+                program: nu,
+                args: &[],
+                login: true,
+            },
+            dir,
+        )
+    }
+
+    /// The process that opens this terminal in `dir`, running `program` with
+    /// `args` (an editor and a file, say).
+    pub fn plan_command(&self, program: &Path, args: &[String], dir: &Path) -> Plan {
+        self.plan_run(
+            Run {
+                program,
+                args,
+                login: false,
+            },
+            dir,
+        )
+    }
+
+    fn plan_run(&self, run: Run<'_>, dir: &Path) -> Plan {
         let cwd = dir.to_path_buf();
-        let fill_all = |args: &[String]| args.iter().map(|a| fill(a, nu, dir)).collect();
         match &self.launch {
             Launch::OpenApp { bundle, args } => {
                 let mut all = vec![
@@ -997,7 +1056,7 @@ impl Terminal {
                     bundle.to_string_lossy().into_owned(),
                     "--args".to_string(),
                 ];
-                all.extend(fill_all(args));
+                all.extend(run.fill(args, dir));
                 Plan {
                     program: "/usr/bin/open".into(),
                     args: all,
@@ -1008,7 +1067,7 @@ impl Terminal {
                 }
             }
             Launch::Ghostty { bundle } => {
-                let command = sh_quote(&nu.to_string_lossy());
+                let command = run.shell_words();
                 let dir_text = dir.to_string_lossy().into_owned();
                 let mut args: Vec<String> = GHOSTTY_SCRIPT
                     .iter()
@@ -1041,13 +1100,15 @@ impl Terminal {
             Launch::CommandFile { bundle } => {
                 let n = SCRIPTS.fetch_add(1, Ordering::Relaxed);
                 let path = std::env::temp_dir()
-                    .join(format!("fffFinder-nu-{}-{n}.command", std::process::id()));
-                let quote = |p: &Path| sh_quote(&p.to_string_lossy());
+                    .join(format!("fff-Finder-nu-{}-{n}.command", std::process::id()));
+                let mut command = run.shell_words();
+                if run.login && run.args.is_empty() {
+                    command.push_str(" --login");
+                }
                 let text = format!(
-                    "#!/bin/sh\ncd {} || exit 1\nrm -f {}\nexec {} --login\n",
-                    quote(dir),
-                    quote(&path),
-                    quote(nu)
+                    "#!/bin/sh\ncd {} || exit 1\nrm -f {}\nexec {command}\n",
+                    sh_quote(&dir.to_string_lossy()),
+                    sh_quote(&path.to_string_lossy()),
                 );
                 Plan {
                     program: "/usr/bin/open".into(),
@@ -1064,15 +1125,15 @@ impl Terminal {
             }
             Launch::Exec { program, args } => Plan {
                 program: program.clone(),
-                args: fill_all(args),
+                args: run.fill(args, dir),
                 cwd,
                 script: None,
                 new_console: false,
                 fallback: None,
             },
             Launch::Console => Plan {
-                program: nu.to_path_buf(),
-                args: Vec::new(),
+                program: run.program.to_path_buf(),
+                args: run.args.to_vec(),
                 cwd,
                 script: None,
                 new_console: true,
@@ -1085,11 +1146,26 @@ impl Terminal {
 /// A custom command, split like a shell would (quotes group words), with
 /// `{dir}` and `{nu}` replaced in each word.
 pub fn custom_plan(template: &str, nu: &Path, dir: &Path) -> Option<Plan> {
-    let words = split_command(template);
-    let (program, args) = words.split_first()?;
+    custom_plan_command(template, nu, &[], dir)
+}
+
+/// A custom command running `program` with `args` where it says `{nu}`.
+pub fn custom_plan_command(
+    template: &str,
+    program: &Path,
+    args: &[String],
+    dir: &Path,
+) -> Option<Plan> {
+    let run = Run {
+        program,
+        args,
+        login: false,
+    };
+    let words = run.fill(&split_command(template), dir);
+    let (first, rest) = words.split_first()?;
     Some(Plan {
-        program: fill(program, nu, dir).into(),
-        args: args.iter().map(|a| fill(a, nu, dir)).collect(),
+        program: first.into(),
+        args: rest.to_vec(),
         cwd: dir.to_path_buf(),
         script: None,
         new_console: false,
@@ -1466,6 +1542,58 @@ mod tests {
                 "--args",
                 "--working-directory=/tmp/my dir",
                 "--initial-command='/opt/my tools/nu'"
+            ]
+        );
+
+        // An editor and its file go where `{nu}` would.
+        let file = vec!["/tmp/my dir/notes.md".to_string()];
+        let kitty = Terminal {
+            launch: Launch::Exec {
+                program: "/usr/bin/kitty".into(),
+                args: strings(&["--directory", "{dir}", "{nu}"]),
+            },
+            ..ghostty.clone()
+        };
+        let plan = kitty.plan_command(Path::new("/usr/bin/nvim"), &file, dir);
+        assert_eq!(
+            plan.args,
+            [
+                "--directory",
+                "/tmp/my dir",
+                "/usr/bin/nvim",
+                "/tmp/my dir/notes.md"
+            ]
+        );
+        let plan = ghostty.plan_command(Path::new("/usr/bin/nvim"), &file, dir);
+        assert_eq!(
+            plan.args.last().unwrap(),
+            "'/usr/bin/nvim' '/tmp/my dir/notes.md'"
+        );
+        let script = terminal
+            .plan_command(Path::new("/usr/bin/hx"), &file, dir)
+            .script
+            .unwrap();
+        assert!(
+            script
+                .text
+                .contains("exec '/usr/bin/hx' '/tmp/my dir/notes.md'\n")
+        );
+        let custom = custom_plan_command(
+            "wezterm start --cwd {dir} -- {nu}",
+            Path::new("nvim"),
+            &file,
+            dir,
+        )
+        .unwrap();
+        assert_eq!(
+            custom.args,
+            [
+                "start",
+                "--cwd",
+                "/tmp/my dir",
+                "--",
+                "nvim",
+                "/tmp/my dir/notes.md"
             ]
         );
 

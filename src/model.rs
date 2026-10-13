@@ -2,6 +2,7 @@
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 /// What the main area shows when no search is active.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -9,20 +10,27 @@ pub enum Location {
     Folder(PathBuf),
     /// Recently used files across the search roots.
     Recents,
+    /// Files sent from elsewhere, like `fff show` in Nushell, shown the way
+    /// search results are.
+    Results {
+        title: String,
+        paths: Arc<Vec<PathBuf>>,
+    },
 }
 
 impl Location {
     pub fn folder(&self) -> Option<&Path> {
         match self {
             Location::Folder(path) => Some(path),
-            Location::Recents => None,
+            Location::Recents | Location::Results { .. } => None,
         }
     }
 
     pub fn title(&self) -> String {
         match self {
-            Location::Folder(path) => fff_finder_core::entry::display_name(path),
+            Location::Folder(path) => fff_Finder_core::entry::display_name(path),
             Location::Recents => "Recents".into(),
+            Location::Results { title, .. } => title.clone(),
         }
     }
 }

@@ -1,0 +1,984 @@
+# fff-Finder manual
+
+This manual describes everything fff-Finder does, control by control. The
+[README](../README.md) covers installing and building it, and
+[protocol.md](protocol.md) documents the local socket that the `fff` Nushell
+module and other tools use.
+
+Keyboard shortcuts are written with Cmd. On Linux and Windows, use Ctrl
+instead.
+
+## Contents
+
+- [Starting fff-Finder](#starting-fff-finder)
+- [The window](#the-window)
+- [Toolbar](#toolbar)
+- [Sidebar](#sidebar)
+- [Views](#views)
+- [Selecting items](#selecting-items)
+- [Sorting and hidden files](#sorting-and-hidden-files)
+- [Searching](#searching)
+- [Recents](#recents)
+- [Previews and Quick Look](#previews-and-quick-look)
+- [Opening files](#opening-files)
+- [Working with files](#working-with-files)
+- [Dragging and dropping](#dragging-and-dropping)
+- [The Nushell panel](#the-nushell-panel)
+- [Filters and Smart Folders](#filters-and-smart-folders)
+- [Renaming several items](#renaming-several-items)
+- [Nushell actions](#nushell-actions)
+- [Using your Nushell environment](#using-your-nushell-environment)
+- [Open Nushell Here and terminals](#open-nushell-here-and-terminals)
+- [Choosing files for scripts](#choosing-files-for-scripts)
+- [Menus](#menus)
+- [Keyboard shortcuts](#keyboard-shortcuts)
+- [Settings](#settings)
+- [settings.json](#settingsjson)
+- [The fff Nushell module](#the-fff-nushell-module)
+- [The control socket](#the-control-socket)
+- [Files, folders, and environment variables](#files-folders-and-environment-variables)
+- [Appearance](#appearance)
+- [Names](#names)
+
+## Starting fff-Finder
+
+Run `fff-Finder`, open the app bundle, or use `fff gui` from Nushell.
+
+```text
+fff-Finder [PATH] [OPTIONS]
+
+  [PATH]             Folder to open (default: last folder or home)
+  -q, --query TEXT   Start with this search (also --query=TEXT)
+      --pick         Choose files and print them as JSON to stdout
+      --multiple     With --pick, allow choosing several items (also -m)
+      --detach       Start in the background and return right away
+  -h, --help         Show this help
+  -V, --version      Show the version
+```
+
+- A PATH that is a file opens its folder.
+- With no PATH, the window opens the folder you last had open, or your home
+  folder if that folder is gone.
+- If fff-Finder is already running, a second launch hands its PATH and
+  `--query` to the running copy, which opens a window, and then exits. There
+  is always one app and one index. `--pick` windows are separate and never
+  hand off.
+- On macOS, fff-Finder keeps running after you close its last window, like
+  Finder, so the index stays warm for Nushell. Clicking the Dock icon opens a
+  new window. On Linux and Windows, closing the last window quits.
+- `--detach` starts fff-Finder in the background and returns at once. `fff gui`
+  uses it.
+- `--pick` turns the window into a file chooser. See
+  [Choosing files for scripts](#choosing-files-for-scripts).
+
+Indexing starts as soon as the app starts. The first scan has to finish
+before "This Computer" searches return results.
+
+## The window
+
+From top to bottom, the window has:
+
+- The toolbar, with the window title, navigation, view and menu buttons, and
+  the search field.
+- The scope bar, only while a search is active.
+- The filter bar, while a Nushell filter is open.
+- The file area, showing the current view.
+- The Nushell panel, while it is open.
+- The path bar.
+- The status bar, or the picker bar in `--pick` mode.
+
+The sidebar runs down the left side.
+
+The file area shows a message when there is nothing to list:
+
+| Message | When |
+| --- | --- |
+| Can't open this folder | The folder can't be read. The reason is shown. |
+| Indexing… | A search ran before the index was ready. It runs again when indexing finishes. |
+| No Results | The search found nothing. |
+| No Recent Files | Recents is empty. |
+| No Items | The folder is empty. |
+
+Open folders refresh on their own. fff-Finder checks the folder every two
+seconds and reloads it quietly when it changed on disk.
+
+### Path bar
+
+The path bar shows the current folder as a row of crumbs, from the volume down.
+Click a crumb to go to that folder. While searching, in Recents, or when
+showing results sent from Nushell, the path bar shows the selected item's path
+instead. Clicking the item's own crumb opens its folder with the item selected.
+
+### Status bar
+
+The status bar shows:
+
+- How many items are shown, or "N of M selected".
+- With a filter on, "N of M items pass the filter".
+- A `+` after the count when a search stopped at the result limit.
+- The time the search took, in milliseconds.
+- A spinner while a search or filter runs.
+- "Indexing N files…" while the index is being built, when the sidebar is
+  hidden. The sidebar footer shows it otherwise.
+- In icon view, a slider for the icon size, from 32 to 128 points.
+
+## Toolbar
+
+From left to right:
+
+| Control | What it does |
+| --- | --- |
+| Show Sidebar | Appears only when the sidebar is hidden. Shows it again. |
+| Title | The folder's name, or `Searching "text"` during a search. On macOS, drag empty toolbar space to move the window, and double-click it to zoom. |
+| Back, Forward | Move through the window's history. |
+| as Icons, as List, as Columns, as Gallery | Switch the view. |
+| Sort and View Options | The sort menu. See [Sorting and hidden files](#sorting-and-hidden-files). |
+| Nushell | The Nushell menu. See [Menus](#menus). |
+| Actions (…) | File commands and dialogs. See [Menus](#menus). |
+| Search field | Search as you type. The clear button ends the search. |
+
+## Sidebar
+
+The sidebar has four sections:
+
+- **Recents** lists files you used recently. See [Recents](#recents).
+- **Favorites** starts with the standard folders that exist on the computer
+  (Applications, Desktop, Documents, Downloads, and so on). Add folders with
+  "Add to Sidebar" or "Add Folder to Sidebar", or by dragging folders onto the
+  sidebar.
+- **Smart Folders** lists saved searches. It appears once you save one. See
+  [Filters and Smart Folders](#filters-and-smart-folders).
+- **Locations** lists your home folder, iCloud Drive or other cloud drives,
+  and mounted volumes.
+
+Click a row to open it. The current folder's row is highlighted.
+
+Right-click a Favorites or Locations row for:
+
+- **Open Nushell Here**: open `nu` in that folder in your terminal.
+- **Show in Finder** (Show in Explorer on Windows, Show in File Manager on
+  Linux).
+- **Remove from Sidebar**: Favorites only.
+
+Right-click a Smart Folder for **Remove from Sidebar**.
+
+The footer shows "N files indexed", or "Indexing… N" with a spinner while
+scanning. Its gear button opens Settings. The Hide Sidebar button, or
+Cmd+Alt+S, hides the sidebar.
+
+## Views
+
+Switch views with the toolbar, the View menu, or Cmd+1 to Cmd+4. The choice is
+saved.
+
+- **Icons** (Cmd+1) shows a grid. Image files show thumbnails, and other
+  documents show their icon with an extension badge. Change the icon size
+  with the slider in the status bar.
+- **List** (Cmd+2) shows Name, Date Modified, Size, and Kind columns. Click a
+  header to sort by it, and click it again to reverse. Search results add a
+  Folder column, or a Match column showing the matching line for a contents
+  search. Rows alternate in color, as in Finder.
+- **Columns** (Cmd+3) shows the folder hierarchy as side-by-side columns.
+  Selecting a folder opens it in a new column to the right. Selecting a file
+  shows a preview card with its kind, size, modification date, and location in
+  the last column. Search results and Recents always use the list in this
+  view, as Finder does.
+- **Gallery** (Cmd+4) shows a large preview of the selected item above a strip
+  of everything in the folder. Left and Right arrows move along the strip. The
+  gallery always shows an item, so it selects the first one when nothing is
+  selected.
+
+Thumbnails cover PNG, JPEG, GIF, WebP, BMP, ICO, TIFF, and SVG files up to
+40 MB.
+
+## Selecting items
+
+| Action | Result |
+| --- | --- |
+| Click | Select one item. |
+| Cmd+click | Add the item to the selection, or remove it. |
+| Shift+click | Select the range from the last item clicked. |
+| Click one item of a multiple selection | Narrow the selection to it. |
+| Double-click | Open the item. |
+| Right-click | Select the item, unless it is already selected, and show its menu. |
+| Arrow keys | Move the selection. In icon view, all four arrows move in the grid. In columns, Left and Right move between columns. |
+| Shift+arrow keys | Extend the selection. |
+| Home, End | Go to the first or last item. |
+| Cmd+A | Select all. |
+| Escape | Clear the selection. With nothing selected, end the search. In `--pick` mode, cancel. |
+
+### Type to select
+
+As in Finder, typing letters while the files have focus selects the first item
+whose name starts with them. Letters typed within a second of each other add
+to the prefix. When no name starts with the prefix, the next name after it in
+alphabetical order is selected, and the last item when the prefix is past
+every name. In column view, typing selects in the active column. Typing in the
+search field searches instead.
+
+## Sorting and hidden files
+
+The Sort and View Options menu has:
+
+- **Sort By**: Relevance (only while searching), Name, Date Modified, Size, and
+  Kind. Choosing the current key again reverses the order.
+- **Ascending** and **Descending**. Both are disabled for Relevance.
+- **Show Hidden Files**.
+
+Name sorting is natural, so `file2` comes before `file10`. Date Modified and
+Size start with the newest and largest items. Kind sorts by kind, then name.
+
+The folder sort is saved. A search has its own sort, which starts at Relevance
+and isn't saved.
+
+**Show Hidden Files** (Cmd+Shift+.) shows dot files and other hidden items in
+folders. It is also in the empty-space menu and the View menu, and in Settings.
+Searches find hidden files only inside git repositories, because that is what
+fff-search indexes.
+
+## Searching
+
+Type in the search field (Cmd+F) to search. Searches start 50 ms after you
+stop typing. Return searches right away and moves into the results, selecting
+the first one. Down Arrow in the search field also moves into the results.
+
+While a search is active, the scope bar shows:
+
+| Control | What it does |
+| --- | --- |
+| This Computer | Search every search location (set in Settings). |
+| "Folder name" | Search only the folder you were in. Folders outside the search locations get a temporary index the first time. |
+| Name | Match file and folder names. |
+| Contents | Search inside files. Results show the first matching line. Letter case, the largest file searched, and the time limit are set in [Settings › Search engine](#search-engine). |
+| Funnel | Open the Nushell filter bar (Cmd+Alt+F). |
+| (i) | Show the Search Syntax dialog (Cmd+/). |
+| Kind menu | Any Kind, Folder, Document, Image, Movie, Audio, Code, or Archive. Disabled for contents searches. |
+
+### Search syntax
+
+| Type | Meaning |
+| --- | --- |
+| `budget report` | Fuzzy words, typo tolerant. Every word must match. |
+| `*.pdf *.md` | Extensions. Several are ORed. |
+| `src/**/*.rs` | A glob against the path inside the search location. |
+| `/notes/ todo` | Only paths inside a folder named `notes`. |
+| `main src/` | A folder filter written at the end. |
+| `git:modified` | Git status: `modified`, `untracked`, `staged`, `clean`. |
+| `!*.log !test` | Exclude an extension, glob, folder, or text. |
+| `main.rs:42` | A line suffix, ignored for matching. |
+
+Cmd+/ shows this table in the app.
+
+### Ranking and limits
+
+fff-search ranks results, and fff-Finder re-ranks them so name matches come
+first, shallow paths come before deep ones, and nothing inside `.app` or
+`.framework` bundles shows. When a word matches files exactly, typo-only
+matches are dropped.
+
+A search shows at most `result_limit` items (500 by default; **Results
+shown** in [Settings › Search engine](#search-engine)). With a filter on, it
+fetches up to 5,000 so the filter has enough to work with. Opening a
+file from search results records it, so files you open often rank higher for
+the same search later.
+
+Search results always show where each item is. Searches can't filter by size
+or date themselves; use a [Nushell filter](#filters-and-smart-folders).
+
+## Recents
+
+Recents (Cmd+Shift+F) shows up to 500 files from the search locations,
+ranked by how often and how recently you opened them in fff-Finder, then by
+modification time. It waits for the index to be ready.
+
+## Previews and Quick Look
+
+Previews appear in the gallery, in the column view's last column, and in
+Quick Look.
+
+| File | Preview |
+| --- | --- |
+| Images | The image. |
+| Folders | The folder icon and how many items it holds. |
+| CSV, TSV, JSON, JSONL, NUON, TOML, YAML, XML, INI, SQLite, XLSX, ODS, EML, ICS, VCF, MessagePack, plist | Opened with Nushell's `open` and shown as a table of up to 200 rows, with "Opened with Nushell" and the row count below. Files over 50 MB are skipped. |
+| `.nu` scripts | Colored the way `nu-highlight` colors them with your `color_config`. |
+| Other text | The first 64 KB as plain text, marked "preview truncated" when longer. |
+| Anything else | The file's icon. |
+
+Nushell previews give up after 10 seconds and show the icon. They need `nu`;
+without it, structured files preview as text.
+
+### Nushell highlighting
+
+`.nu` previews run `nu-highlight` in a login shell, so your `color_config`
+applies. Every color comes from it, with one addition: `nu-highlight` leaves
+comments uncolored, so fff-Finder draws comments in the theme's secondary
+(gray) text color.
+
+### Quick Look
+
+Space or Cmd+Y opens Quick Look for the selected item, and pressing either
+again closes it. Quick Look shows the item's icon and name, a large preview,
+and its kind, size, and modification date.
+
+- **Show in Finder** (Show in Explorer, Show in File Manager) reveals the item
+  and keeps Quick Look open.
+- **Open** opens the item and closes Quick Look.
+
+### Preview text size
+
+Text, code, and table previews in Quick Look have text size controls at the
+bottom left:
+
+- The small "A" makes the text one point smaller.
+- The large "A" makes it one point bigger.
+- The size label, such as "11.5 pt", resets it.
+
+With Quick Look open, Cmd+= (or Cmd++) makes the text bigger, Cmd+- makes it
+smaller, and Cmd+0 resets it. The size ranges from 8 to 32 points, defaults to
+11.5, and is saved as `preview_font_size`. The gallery uses the same size. The
+column view's preview card stays at 11.5 points. The window's
+[text size](#appearance-and-text-size) setting multiplies all of these.
+
+## Opening files
+
+**Open** (Return, Cmd+Down, Cmd+O, double-click, or Quick Look's Open button)
+opens a folder in the window, and opens a file or app with its default
+application. Opening several files opens each one.
+
+When no application is registered for a file (checked with LaunchServices on
+macOS and `xdg-mime` on Linux):
+
+- A file that looks like text opens in your editor instead: Nushell's
+  `buffer_editor` when "Use Nushell's file colors and editor" is on and
+  `buffer_editor` is set, otherwise the system text editor. That is
+  `open -t` on macOS (the default app for plain text), Notepad on Windows, and
+  `$VISUAL` or `$EDITOR` on Linux (a notification says so when neither is
+  set).
+- A binary file shows a notification instead.
+
+Windows has its own "Open with" chooser, so there the file goes to Windows as
+usual.
+
+**Open in Editor** (File menu or item menu) opens files in Nushell's editor
+when that option is on and an editor is set. Otherwise it uses the file's
+default app, or the system text editor when there is none. Terminal editors
+open in your chosen terminal. See
+[Using your Nushell environment](#using-your-nushell-environment).
+
+**Show in Finder** (Show in Explorer on Windows, Show in File Manager on
+Linux) reveals the selected items in the system file manager.
+
+**Show in Enclosing Folder** appears in the item menu for a single search
+result. It opens the item's folder in this window with the item selected.
+
+## Working with files
+
+| Command | What it does |
+| --- | --- |
+| New Folder (Cmd+Shift+N) | Creates "untitled folder" (or "untitled folder 2", …) in the current folder and opens the Rename dialog for it. |
+| Rename… (F2) | Renames one item in a dialog. Names can't be empty or contain `/` (or `\` and the other characters Windows forbids). With several items selected, opens [batch rename](#renaming-several-items). |
+| Move to Trash (Cmd+Backspace, Delete) | Asks "Move "name" to the Trash?" or "Move N items to the Trash?", then moves them. You can restore items from the Trash. |
+| Copy Path (Cmd+Alt+C, Cmd+C in the files) | Copies the selected paths, one per line. |
+| Copy as Nushell List (Cmd+Shift+C) | Copies the selection as NUON: a quoted string for one path, a list for several. |
+| Go to Folder… (Cmd+Shift+G) | Type a path. `~` is your home folder, and relative paths start from the current folder. A folder opens; a file opens its folder with the file selected. |
+| Add to Sidebar | Adds a selected folder to Favorites. |
+| Add Folder to Sidebar | Adds the current folder to Favorites. |
+| Refresh (Cmd+R) | Reloads the folder, columns, and previews, and re-runs the search. |
+| Rescan Index | Rebuilds the search index from scratch. |
+
+## Dragging and dropping
+
+- Drag items from any view to another app to hand it the files. This works on
+  macOS and Wayland; GPUI doesn't support dragging out on Windows or X11.
+- Drop folders on the sidebar to add them to Favorites.
+- Drop a folder on the file area to open it, or a file to open its folder with
+  the file selected.
+
+## The Nushell panel
+
+Ctrl+` (or "Run a Pipeline…" in the Nushell menu, or "Run Nushell
+Pipeline…" in a context menu) opens the Nushell panel below the files. It runs
+a pipeline with the selected items as `$in`, or every item shown when nothing
+is selected.
+
+Each item is a record with `name`, `path`, `type` (`file` or `dir`), `kind`,
+`size` (a filesize), and `modified` (a date), so pipelines such as
+`where size > 1mb | sort-by modified` work as they do in Nushell.
+
+- Type a pipeline and press Return or click **Run**.
+- **Clear** empties the pipeline and its result, and the examples show again.
+  Clicking it while a pipeline runs drops that pipeline's result.
+- Before the first run, and after Clear, the panel lists examples. Click one
+  to fill it in and run it.
+- A table result shows with a row number column. Other results show as text.
+  Errors show in red above the result.
+- The line at the bottom says what `$in` held and how long the run took.
+- Close the panel with its close button or Ctrl+`.
+
+Your [Nushell actions](#nushell-actions) show their results here too.
+
+The text size of the panel is set in Settings. See
+[Nushell text size](#nushell-text-size).
+
+## Filters and Smart Folders
+
+A filter narrows what the window shows with Nushell. Open the filter bar with
+Cmd+Alt+F, the funnel button in the scope bar, "Filter with Nushell…" in the
+Actions menu, or "Filter with Nushell" in the Edit menu. It works on a folder
+and on search results.
+
+Type a `where` condition:
+
+```nu
+size > 10mb and modified > 2024-01-01
+```
+
+Or start with `|` to use a whole pipeline, which must keep the `path` column:
+
+```nu
+| sort-by size --reverse | first 20
+```
+
+The filter runs 400 ms after you stop typing, or right away when you press
+Return. The status bar counts how many items pass. Errors show in red below
+the bar. The close button removes the filter.
+
+While searching, the filter bar's **Save** button opens "Save Smart Folder".
+Name it, and the search, its scope folder, the kind, Name or Contents, and the
+filter are saved in the sidebar under Smart Folders. Clicking a Smart Folder
+runs the search again with the filter, so it stays up to date.
+
+## Renaming several items
+
+Select several items and press F2, or choose "Rename N Items…", to rename them
+with a Nushell closure. The closure gets each item with `name`, `stem`, `ext`,
+`index` (starting at 1), `path`, `type`, `kind`, `size`, and `modified`, and
+returns the new name. It may take the item as a parameter (`{|f| $f.name }`)
+or as `$in`. Text that isn't a closure is used as the body, with the item as
+`$f`.
+
+Starting points are one click away: **Lowercase**, **Spaces to dashes**,
+**Number**, **Date first**, and **New extension**.
+
+```nu
+{|f| $f.name | str downcase }
+{|f| $"($f.index | fill --alignment right --character '0' --width 3) ($f.name)" }
+```
+
+The dialog previews every old and new name 300 ms after you stop typing, or
+when you press Return. It flags names that are empty, contain characters the
+system forbids, are too long, collide with each other, or already exist.
+**Rename** is enabled when at least one name changes and nothing is flagged.
+Renaming happens in two steps through temporary names, so swaps such as
+`a -> b, b -> a` and case-only changes work. If a step fails, the names that
+already changed are put back.
+
+Batch rename needs `nu`.
+
+## Nushell actions
+
+Commands exported from `actions.nu` in the settings folder appear under
+**Nushell Actions** in the item menu and in the toolbar's Nushell menu. Each
+command's name becomes a menu label (`count lines` becomes "Count Lines"), and
+the comment above it describes it.
+
+An action receives the selected items as a table on `$in`, with the same
+columns as the [Nushell panel](#the-nushell-panel), and its result shows in
+the panel. Running an action fills in the panel's pipeline, so you can see and
+edit what ran.
+
+The first time, fff-Finder writes starter actions:
+
+| Action | What it returns |
+| --- | --- |
+| Count Lines | Lines in each selected text file, most first. Folders and binary files are left out. |
+| Total Size | How many files and folders are selected, the files' total size, and the folders' total size. |
+| Markdown Links | A `- [name](file:///path)` line per item, with the path percent-encoded so names with spaces, `#`, `(`, or `[` still link. |
+| Find Duplicates | Files with the same contents (SHA-256) among the selected files and everything inside the selected folders. Empty files and symbolic links are skipped. |
+| Archive | Packs the selection into `Archive <date time>.tar.gz` next to the first item. Items may come from different folders. |
+
+When a new version of fff-Finder changes the starters, it updates an
+`actions.nu` you never edited. A file you edited is left alone.
+
+- **Edit Actions…** opens `actions.nu` in your editor, writing the starters
+  first if it is missing.
+- **Reload Actions** reads the file again. fff-Finder also reloads it on its
+  own within a few seconds of a save.
+- If the file has an error, the submenu shows it as its first, disabled item.
+
+```nu
+# Lines of code per selected file.
+export def "count lines" []: table -> table {
+    $in | where type == file | each {|f| {name: $f.name, lines: (open --raw $f.path | lines | length)} }
+}
+```
+
+## Using your Nushell environment
+
+With **Use Nushell's file colors and editor** on in Settings, fff-Finder reads
+`$env.LS_COLORS`, `$env.config.buffer_editor`, `$VISUAL`, `$EDITOR`, and
+`PATH` from a `nu --login` session, so `config.nu` and `env.nu` apply.
+
+- File names are drawn the way `ls` draws them, using Nushell's default
+  colors when `LS_COLORS` isn't set: the color, a background behind the
+  letters (README, LICENSE-style names are black on light yellow in Nushell's
+  defaults), bold, italic, underline, strikethrough, dim, and reverse. A
+  selected item uses the selection colors instead.
+- "Open in Editor", "Edit Actions…", and the Open fallback use
+  `buffer_editor`, then `$VISUAL`, then `$EDITOR`.
+- Terminal editors (vi, vim, nvim, lvim, hx, helix, nano, pico, micro, kak,
+  joe, ne, mg, emacs, amp, ed, vis, jed, mcedit) open in the terminal you chose
+  for "Open Nushell Here". Others start directly.
+
+Settings shows what was read, or why it couldn't be. With the option off,
+names use the theme's colors.
+
+## Open Nushell Here and terminals
+
+**Open Nushell Here** opens `nu` in a folder, in a terminal:
+
+- From the item menu, it uses the selected folder, or a file's folder.
+- From the empty-space menu or a sidebar row, it uses that folder.
+- Cmd+Alt+T ("Open in Nushell" in the Nushell menu) uses the selected item's
+  folder, the current folder, or your home folder.
+
+Choose the terminal in Settings. **Automatic** uses the first of these that is
+installed:
+
+- macOS: Ghostty, iTerm2, WezTerm, kitty, Alacritty, Rio, then Terminal.
+- Windows: Windows Terminal, WezTerm, Alacritty, then a plain console window.
+- Linux: `$TERMINAL` if it is set, then Ghostty, WezTerm, kitty, Alacritty,
+  Rio, foot, GNOME Terminal, Konsole, Xfce Terminal, any other terminal found,
+  the system default (`x-terminal-emulator`), and XTerm last.
+
+Terminals are found the way each system records them:
+
+- macOS: the `Info.plist` of every app in the Applications folders and of every
+  app the index finds. An app that adds a "New … Window Here" service and opens
+  shell scripts counts even if fff-Finder doesn't know it.
+- Linux: `.desktop` entries in the `TerminalEmulator` category, programs on
+  `PATH`, and AppImages in the index. Flatpak terminals are skipped, because
+  the sandbox can't see the host's `nu`.
+- Windows: the install folders, `PATH`, and the index, which finds portable
+  and Scoop installs.
+
+How each one starts:
+
+- Most terminals start with their own working-directory flag and run `nu`. On
+  macOS they open with `open -na <app> --args …`, so each starts as its own
+  app.
+- Terminal and iTerm2 on macOS open a small `.command` script that changes to
+  the folder and runs `nu`.
+- Ghostty on macOS opens a new window in the running app through AppleScript.
+  macOS asks once whether fff-Finder may control Ghostty. If Ghostty isn't
+  running, or you decline, a new Ghostty instance starts with
+  `--working-directory`. fff-Finder avoids Ghostty's `-e` flag because Ghostty
+  asks for confirmation every time it is used
+  ([ghostty discussion #10203](https://github.com/ghostty-org/ghostty/discussions/10203)).
+- **Custom Command** runs your own command. `{dir}` becomes the folder and
+  `{nu}` the path to `nu`, and quotes group words that contain spaces. For
+  example: `open -na WezTerm --args start --cwd {dir} -- {nu}`,
+  `wt.exe -d {dir} {nu}`, or `foot --working-directory={dir} {nu}`.
+
+If the terminal saved in Settings isn't installed, Automatic's choice is used
+and a notification says so. The choice is saved per operating system. See
+[settings.json](#settingsjson).
+
+## Choosing files for scripts
+
+`fff-Finder --pick [PATH] [--multiple] [--query TEXT]` opens a chooser window.
+The picker bar at the bottom explains what to do and has **Cancel** and
+**Choose** buttons. "Choose" becomes "Choose N Items" with several selected.
+
+- Return, double-click on a file, **Choose**, or "Choose" or "Choose Items" in
+  the item menu prints a JSON array of absolute paths to stdout and exits 0.
+- Double-clicking a folder opens it.
+- Escape or **Cancel** exits 1.
+
+`fff pick` in Nushell wraps it.
+
+## Menus
+
+### Menu bar
+
+| Menu | Items |
+| --- | --- |
+| fff-Finder | Settings… (Cmd+,), Rescan Index, Quit fff-Finder (Cmd+Q) |
+| File | New Window (Cmd+N), New Folder, Open, Open in Editor, Quick Look, Rename…, Move to Trash, Close Window (Cmd+W) |
+| Edit | Undo, Redo, Cut, Copy, Paste (for text fields), Copy Path, Copy as Nushell List, Select All Items, Find, Filter with Nushell, Search Syntax… |
+| View | as Icons, as List, as Columns, as Gallery, Toggle Sidebar, Show/Hide Hidden Files, Toggle Light/Dark, Refresh |
+| Go | Back, Forward, Enclosing Folder, Recents, Home, Go to Folder… |
+| Nushell | Pipeline Panel, Open in Nushell, Copy as Nushell List |
+
+New Window opens a window at the folder you last had open.
+
+### Item menu
+
+Right-click one or more items:
+
+- Choose, or Choose Items (only in `--pick` mode)
+- Open
+- Quick Look
+- Open in Editor (when a file is selected)
+- Show in Enclosing Folder (one search result)
+- Show in Finder (Show in Explorer, Show in File Manager)
+- Copy Path, or Copy Paths
+- Copy as Nushell List
+- Open Nushell Here
+- Run Nushell Pipeline…
+- Nushell Actions (submenu)
+- Rename…, or Rename N Items…
+- Add to Sidebar (one folder that isn't a favorite)
+- Move to Trash
+
+### Empty-space menu
+
+Right-click empty space in a view:
+
+- New Folder (in a folder)
+- Open Nushell Here (in a folder)
+- Run Nushell Pipeline…
+- Add Folder to Sidebar (when the folder isn't a favorite)
+- Show Hidden Files
+- Refresh
+
+### Nushell Actions submenu
+
+Your actions, then **Edit Actions…** and **Reload Actions**. See
+[Nushell actions](#nushell-actions).
+
+### Toolbar menus
+
+- **Sort and View Options**: Sort By (Relevance, Name, Date Modified, Size,
+  Kind), Ascending, Descending, Show Hidden Files.
+- **Nushell**: Open Nushell Here, Run a Pipeline… (or Hide Pipeline Panel when
+  it is open), Nushell Actions, Copy as Nushell List.
+- **Actions** (…): New Folder, Quick Look, Rename…, Copy Path, Show in Finder,
+  Add Folder to Sidebar, Move to Trash, Filter with Nushell…, Go to Folder…,
+  Search Syntax…, Settings….
+
+## Keyboard shortcuts
+
+Cmd on macOS, Ctrl elsewhere.
+
+### Anywhere
+
+| Keys | Action |
+| --- | --- |
+| Cmd+Q | Quit |
+| Cmd+, | Settings |
+| Cmd+N | New window |
+
+### In the window
+
+| Keys | Action |
+| --- | --- |
+| Cmd+W | Close the window |
+| Cmd+F | Search |
+| Cmd+Alt+F | Filter with Nushell |
+| Cmd+/ | Search syntax |
+| Cmd+[, Alt+Left | Back |
+| Cmd+], Alt+Right | Forward |
+| Cmd+Up | Enclosing folder |
+| Cmd+Shift+H | Home |
+| Cmd+Shift+F | Recents |
+| Cmd+Shift+G | Go to folder |
+| Cmd+1, Cmd+2, Cmd+3, Cmd+4 | Icons, list, columns, gallery |
+| Cmd+Shift+. | Show hidden files |
+| Cmd+R | Refresh |
+| Cmd+Alt+S | Toggle the sidebar |
+| Cmd+Shift+N | New folder |
+| Cmd+Alt+C | Copy path |
+| Cmd+Shift+C | Copy as Nushell list |
+| Cmd+Alt+T | Open Nushell here |
+| Ctrl+` | Nushell panel (Ctrl on every system) |
+| Cmd+Shift+D | Switch between light and dark |
+
+### In the file views
+
+| Keys | Action |
+| --- | --- |
+| Up, Down, Left, Right | Move the selection |
+| Shift+Up, Shift+Down, Shift+Left, Shift+Right | Extend the selection |
+| Home, End | First or last item |
+| Return, Cmd+Down, Cmd+O | Open |
+| Space, Cmd+Y | Quick Look |
+| Escape | Clear the selection, end the search, or cancel `--pick` |
+| Cmd+A | Select all |
+| Cmd+C | Copy path |
+| F2 | Rename (several items: batch rename) |
+| Cmd+Backspace, Delete | Move to Trash |
+| Letters | Type to select |
+
+### In Quick Look
+
+| Keys | Action |
+| --- | --- |
+| Space, Cmd+Y | Close Quick Look |
+| Cmd+=, Cmd++ | Bigger preview text |
+| Cmd+- | Smaller preview text |
+| Cmd+0 | Reset the preview text size |
+
+### In the search field
+
+| Keys | Action |
+| --- | --- |
+| Return | Search now and move into the results |
+| Down | Move into the results |
+
+## Settings
+
+Cmd+, (or the gear in the sidebar footer, or Settings… in the Actions menu)
+opens Settings. Changes apply and save right away. **Done** closes it.
+
+### Search locations
+
+"This Computer" searches these folders, and their indexes stay live while
+fff-Finder runs. Each row shows the folder and its file count, or "indexing…"
+while it scans. The X button stops indexing that folder.
+
+- **Add Folder…** chooses another folder to index.
+- **Index Entire Disk** replaces the list with the whole disk (`/`, or `C:\`
+  on Windows). The first scan takes longer and uses more memory.
+- **Reset** goes back to the defaults: your home folder, plus `/Applications`
+  on macOS.
+- **Rescan** rebuilds the index.
+
+### Search engine
+
+These are fff-search's options. Each change applies and saves right away.
+
+| Control | What it does | Saved as |
+| --- | --- | --- |
+| Follow symbolic links | Index what symbolic links point to. | `search.follow_symlinks` |
+| Watch folders for changes | Keep the indexes current while fff-Finder runs. Off, they update on Rescan. | `search.watch` |
+| Rank recent git changes higher | In a git repository, files from the last 10 commits rank higher. | `search.git_recency` |
+| Index file contents | After scanning, index file contents so content searches skip non-matching files sooner. Uses more memory. | `search.content_index` |
+| Keep often-used files in memory | Load the most-opened files into memory for faster content search. | `search.preload_files` |
+| Letter case in content search | **Smart** ignores case unless the text has a capital letter; **Match Case**; **Ignore Case**. | `search.case` |
+| Results shown | The most items a search lists: 100, 200, 500, 1000, 2000, or 5000. | `result_limit` |
+| Content search skips files over | 1 MB to 1000 MB (10 MB by default). | `search.max_file_size_mb` |
+| Content search time limit | After this long a content search stops and shows what it found so far, even when that is nothing: None, or 1 to 60 seconds (5 by default). The status bar then says "stopped at the time limit". | `search.time_limit_secs` |
+| Search threads | Threads for name searches; Auto uses one per processor core. Content search always uses fff-search's own threads, one per performance core on macOS and one per core elsewhere. | `search.threads` |
+
+Changing one of the five switches rebuilds every index, so the file counts
+under Search locations start over. The other controls apply to the next
+search, and a search on screen runs again.
+
+### Appearance and text size
+
+- **System**, **Light**, **Dark**: the appearance. System follows the
+  operating system as it changes.
+- **Show hidden files**.
+- **Text size**: a small "A" button, a large "A" button, and a percentage
+  label such as "100%" that resets it. It scales everything in the window
+  (text, controls, rows, the sidebar, the toolbar, and dialogs), like zooming,
+  from 80% to 200% in steps of 10%. It also multiplies the
+  [preview text size](#preview-text-size) and the
+  [Nushell text size](#nushell-text-size). It is saved as `ui_scale`, where
+  1.0 is 100%.
+
+### Nushell
+
+- The path of the `nu` in use, or a note that it wasn't found. fff-Finder
+  looks at the `nu_path` setting, `PATH`, and the usual install folders
+  (`~/.cargo/bin`, `~/.local/bin`, Homebrew, `/usr/local/bin`, `/usr/bin`,
+  and on Windows `Programs\nu\bin`).
+- **Open Nushell Here in**: the terminal menu. It lists Automatic (with the
+  terminal it picks), each terminal found, **Custom Command**, and
+  **Detect Again**, which looks for terminals again. The line below explains the choice
+  and says it is saved for this operating system.
+- **Try It** opens Nushell in the current folder with the chosen terminal.
+- The custom command field, when Custom Command is chosen.
+- **Use Nushell's file colors and editor**, with a line saying what was read.
+- **Nushell text size**. See below.
+- The path of the settings file.
+
+### Nushell text size
+
+The Nushell text size setting has a small "A" button and a large "A" button
+that change it by one point, and a size label such as "12 pt" that resets it.
+It sizes the [Nushell panel](#the-nushell-panel) (the
+pipeline field, the examples, text results, errors, and tables), so the
+results of [Nushell actions](#nushell-actions) use it too. It also sizes the
+action names in the Nushell Actions submenu. It ranges from 8 to 32 points,
+defaults to 12, and is saved as `nu_font_size`.
+
+## settings.json
+
+Settings live in `settings.json` in the settings folder (see
+[Files, folders, and environment variables](#files-folders-and-environment-variables)).
+fff-Finder writes it shortly after each change, through a temporary file so a
+crash never leaves it half written. Missing fields use their defaults, and a
+file that can't be read falls back to defaults.
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `search_roots` | Home, plus `/Applications` on macOS | Folders indexed for "This Computer" searches. |
+| `favorites` | The standard folders that exist | Sidebar Favorites, in order. |
+| `show_hidden` | `false` | Show hidden files in folders. |
+| `view_mode` | `"icons"` | `icons`, `list`, `columns`, or `gallery`. |
+| `sort` | `{"key": "name", "ascending": true}` | The folder sort. Keys: `name`, `modified`, `size`, `kind`. |
+| `icon_size` | `64` | Icon view size, 32 to 128. |
+| `show_sidebar` | `true` | Show the sidebar. |
+| `appearance` | `"system"` | `system`, `light`, or `dark`. |
+| `kind_filter` | `"any"` | The search Kind menu: `any`, `folder`, `document`, `image`, `movie`, `audio`, `code`, `archive`. |
+| `result_limit` | `500` | Maximum results shown for a search. |
+| `terminals` | `{}` | The "Open Nushell Here" terminal per system, keyed `macos`, `linux`, `windows`. Each has `app` (a terminal id, or `custom`) and `command` (for `custom`, with `{dir}` and `{nu}`). A missing entry means Automatic. |
+| `smart_folders` | `[]` | Saved searches: `name`, `query`, `kind`, `scope` (a folder, or null for every location), `contents`, and `filter`. |
+| `use_nu_environment` | `false` | Use Nushell's file colors and editor. |
+| `preview_font_size` | `11.5` | Quick Look and gallery preview text size, 8 to 32. |
+| `nu_font_size` | `12` | Nushell panel and Nushell Actions text size, 8 to 32. |
+| `ui_scale` | `1.0` | Text size for the whole window, 0.8 to 2.0 in steps of 0.1. It also multiplies `preview_font_size` and `nu_font_size`. |
+| `search` | see below | fff-search's options from [Settings › Search engine](#search-engine). |
+| `terminal` | none | The old single terminal command. It moves into `terminals` when the file is read. |
+| `nu_path` | none | Path to `nu`. When unset, fff-Finder searches `PATH` and the usual install folders. |
+| `last_folder` | none | The folder the next window opens at. |
+
+The `search` record:
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `follow_symlinks` | `false` | Follow symbolic links while indexing. |
+| `watch` | `true` | Keep indexes current with filesystem watchers. |
+| `git_recency` | `true` | Rank files from recent git commits higher. |
+| `content_index` | `false` | Index file contents after scanning. |
+| `preload_files` | `false` | Keep often-used files in memory for content search. |
+| `case` | `"smart"` | Content search case: `smart`, `sensitive`, or `insensitive`. |
+| `max_file_size_mb` | `10` | Content search skips bigger files. |
+| `time_limit_secs` | `5` | Content search time limit; `0` means none. |
+| `threads` | `0` | Name search threads; `0` means one per core. |
+
+Terminal ids: `ghostty`, `iterm2`, `wezterm`, `kitty`, `alacritty`, `rio`,
+`foot`, `gnome-terminal`, `konsole`, `xfce4-terminal`, `terminal` (macOS
+Terminal), `xterm`, `windows-terminal`, `x-terminal-emulator`, and `console`
+(Windows console window). Terminals known only from their metadata use
+`app:<bundle id>` on macOS and `desktop:<entry>` on Linux.
+
+```json
+"terminals": {
+  "macos": { "app": "ghostty" },
+  "windows": { "app": "windows-terminal" },
+  "linux": { "app": "custom", "command": "foot --working-directory={dir} {nu}" }
+}
+```
+
+## The fff Nushell module
+
+`nu/fff.nu` is a Nushell module. The app bundle includes a copy. Load it from
+your config:
+
+```nu
+use /path/to/fff-Finder/nu/fff.nu *
+fff keybindings
+```
+
+Most commands ask the running fff-Finder over its [control
+socket](#the-control-socket), so nothing is scanned in the shell and results
+come from the window's live index. When no window is running they fail with
+"no fff-Finder window is running"; `fff gui` starts one. `fff show` starts it
+for you.
+
+The module finds the app through `$env.FFF_FINDER_BIN`, then `PATH`, then
+`/Applications/fff-Finder.app` and `~/Applications/fff-Finder.app`, then a
+release or debug build in the repository.
+
+| Command | What it does |
+| --- | --- |
+| `fff find ...query` | Name search, ranked as the window ranks it. `--files (-f)`, `--dirs (-d)`, `--kind (-k)` (document, image, movie, audio, code, archive, folder), `--scope (-s) <path>`, `--here`, `--limit (-l)` (default 100). Returns `name`, `type`, `size`, `modified`, `git`, `path`, `score`. |
+| `fff files [query]` | Every indexed file, or those whose names fuzzy-match. `--limit (-l)`. Returns `name`, `size`, `modified`, `path`, `root`. |
+| `fff dirs [query]` | Every indexed folder, or those that match. `--limit (-l)`. |
+| `fff search ...pattern` | Content search; a line matching any pattern counts. `--regex (-r)`, `--fuzzy (-f)`, `--context (-C)`, `--before (-B)`, `--after (-A)`, `--scope (-s)`, `--here`, `--limit (-l)` (default 200). Returns `path`, `line_number`, `column`, `line`, and `context` when asked. |
+| `fff status` | The index: locations, file and folder counts, and whether it is scanning. |
+| `fff watch [pattern]` | Streams file changes from the index. `--ignore (-i)` globs or path prefixes, and `--timeout (-t)` or `--max-events (-n)`; one of the two is required. |
+| `fff selection` | What is selected in the front window. `--all (-a)` returns everything it shows. |
+| `fff show` | Shows piped paths, `ls` or `glob` output, or any table with a `path` or `name` column in the window, like a search. `--title (-t)` names the results. |
+| `fff pick ...query` | Chooses files in a `--pick` window and returns the path, or nothing when cancelled. `--root (-r)` opens another folder, and `--multiple (-m)` allows several and always returns a list. |
+| `fff gui [path]` | Opens a window at a folder (default: the current one). `--query (-q)` starts a search. |
+| `fff open ...query` | Finds the best document match and opens it as structured data. |
+| `fff insert ...query` | Picks files and inserts them at the cursor as NUON. |
+| `fff cd ...query` | Picks a folder, or a file's folder, and changes to it. |
+| `fff edit ...query` | Picks a file and opens it in `$env.config.buffer_editor`, `$VISUAL`, `$EDITOR`, or `vi` (`notepad` on Windows). |
+| `fff keybindings` | Adds key bindings in emacs and vi modes: Ctrl+T runs `fff insert`, and Alt+C runs `fff cd`. `--insert-key` and `--cd-key` change the letters. |
+
+## The control socket
+
+A running fff-Finder answers requests about its index, and requests to show
+things, over a local connection:
+
+- macOS and Linux: a Unix socket at `run/fff-Finder.sock` in the data folder,
+  readable only by you.
+- Windows: `127.0.0.1` on a random port, with a random token required on every
+  request.
+
+`run/server.json` in the data folder says where to connect. The endpoints are
+plain HTTP with JSON, so Nushell can call them directly:
+
+```nu
+let sock = ($nu.data-dir | path dirname | path join fff-Finder run fff-Finder.sock)
+http get --unix-socket $sock 'http://localhost/v1/find?query=readme&limit=5'
+```
+
+[protocol.md](protocol.md) documents every endpoint: status, find, files, dirs,
+search, watch, selection, show, and open. A second launch of fff-Finder uses
+`POST /v1/open` to hand off to the running copy.
+
+A proposed Nushell change adds `idx connect`, which points Nushell's `idx`
+commands at this socket. It isn't in a Nushell release yet.
+
+## Files, folders, and environment variables
+
+| Folder | macOS | Linux | Windows |
+| --- | --- | --- | --- |
+| Settings | `~/Library/Application Support/fff-Finder` | `~/.config/fff-Finder` | `%APPDATA%\fff-Finder` |
+| Data | `~/Library/Application Support/fff-Finder` | `$XDG_DATA_HOME/fff-Finder`, else `~/.local/share/fff-Finder` | `%LOCALAPPDATA%\fff-Finder` |
+
+The settings folder holds `settings.json` and `actions.nu`. The data folder
+holds:
+
+- `run/`: the socket and `server.json`, removed on a normal quit.
+- `gui/`: the frecency and search-history databases that rank Recents and
+  repeat searches.
+- `icons/v2/`: Finder icons cached as PNGs on macOS, one per extension and one
+  per app or special folder.
+- `hang-<time>.txt`: hang reports, when the watchdog is on.
+
+| Variable | Effect |
+| --- | --- |
+| `FFF_FINDER_CONFIG_DIR` | Use another settings folder. |
+| `FFF_FINDER_DATA_DIR` | Use another data folder, for the app and for the `fff` module. |
+| `FFF_FINDER_WATCHDOG=1` | When the window stops responding for three seconds, save every thread's stack to `hang-<time>.txt` in the data folder (with `sample` on macOS) and print where. Other systems print the process ID to attach a debugger to. |
+| `FFF_FINDER_BIN` | Where the `fff` module finds the app. |
+| `TERMINAL` | On Linux, the terminal Automatic prefers. |
+
+The older `FFFFINDER_CONFIG_DIR`, `FFFFINDER_DATA_DIR`, and
+`FFFFINDER_WATCHDOG` names still work.
+
+Before the rename, the app stored its files in folders named `fffFinder`. The
+first time fff-Finder starts, it moves them to the new `fff-Finder` folders,
+unless you set the folder variables above.
+
+## Appearance
+
+fff-Finder has light and dark themes, chosen in Settings or switched with
+Cmd+Shift+D. With System, it follows the operating system as it changes.
+
+On macOS it looks like Finder:
+
+- File and folder icons are the ones Finder shows, drawn by macOS. Special
+  folders and apps get their own icons. New icons fill in over a few frames
+  instead of making the window wait.
+- The sidebar uses Finder's sidebar icons, tinted with the accent color.
+- The colors were measured from macOS's own light and dark appearances.
+- The accent and selection colors follow System Settings. fff-Finder reads
+  them when it starts, so restart it after changing them.
+
+Linux and Windows use the same colors with fff-Finder's own icons.
+
+## Names
+
+The app, its bundle, and its crates are named fff-Finder: the packages are
+`fff-Finder` and `fff-Finder-core`, and Rust code refers to them as
+`fff_Finder` and `fff_Finder_core`, because Rust identifiers can't contain
+`-`. Environment variables stay uppercase, as `FFF_FINDER_*`.

@@ -1,4 +1,4 @@
-//! Command line: `fffFinder [PATH] [--query TEXT] [--pick] [--multiple]`.
+//! Command line: `fff-Finder [PATH] [--query TEXT] [--pick] [--multiple] [--detach]`.
 //!
 //! `--pick` turns the window into a chooser for scripts (used by `fff pick`):
 //! choosing prints a JSON array of absolute paths and exits 0; cancelling exits 1.
@@ -12,12 +12,14 @@ pub struct Args {
     pub query: Option<String>,
     pub pick: bool,
     pub multiple: bool,
+    /// Start in the background and return at once (used by `fff gui`).
+    pub detach: bool,
 }
 
 pub const USAGE: &str = "\
-fffFinder - fast Finder-style file search
+fff-Finder - fast Finder-style file search
 
-Usage: fffFinder [PATH] [OPTIONS]
+Usage: fff-Finder [PATH] [OPTIONS]
 
 Arguments:
   [PATH]             Folder to open (default: last folder or home)
@@ -26,6 +28,7 @@ Options:
   -q, --query TEXT   Start with this search
       --pick         Choose files and print them as JSON to stdout
       --multiple     With --pick, allow choosing several items
+      --detach       Start in the background and return right away
   -h, --help         Show this help
   -V, --version      Show the version
 ";
@@ -47,6 +50,7 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Parsed, String>
             "-V" | "--version" => return Ok(Parsed::Version),
             "--pick" => out.pick = true,
             "--multiple" | "-m" => out.multiple = true,
+            "--detach" => out.detach = true,
             "-q" | "--query" => {
                 let value = iter.next().ok_or("--query needs a value")?;
                 out.query = Some(value.to_string_lossy().into_owned());
@@ -88,6 +92,7 @@ mod tests {
                 query: Some("main rs".into()),
                 pick: true,
                 multiple: true,
+                detach: false,
             })
         );
     }

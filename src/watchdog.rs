@@ -1,4 +1,4 @@
-//! Opt-in hang reports. With `FFFFINDER_WATCHDOG=1`, a thread watches a
+//! Opt-in hang reports. With `FFF_FINDER_WATCHDOG=1`, a thread watches a
 //! heartbeat from the UI thread. When the UI stops responding for three
 //! seconds it saves every thread's stack (with `sample` on macOS) in the data
 //! folder and prints where.
@@ -12,7 +12,7 @@ use std::time::{Duration, Instant, SystemTime};
 const STALL: Duration = Duration::from_secs(3);
 
 pub fn start_if_enabled(cx: &mut App) {
-    match std::env::var("FFFFINDER_WATCHDOG") {
+    match std::env::var("FFF_FINDER_WATCHDOG").or_else(|_| std::env::var("FFFFINDER_WATCHDOG")) {
         Ok(value) if !value.is_empty() && value != "0" => start(cx),
         _ => {}
     }
@@ -47,19 +47,21 @@ pub fn start(cx: &mut App) {
             }
         });
     if let Err(err) = spawned {
-        eprintln!("fffFinder: could not start the watchdog: {err}");
+        eprintln!("fff-Finder: could not start the watchdog: {err}");
     }
 }
 
 fn report(stalled: Duration) {
     let pid = std::process::id();
     eprintln!(
-        "fffFinder: the window has not responded for {:.1} s",
+        "fff-Finder: the window has not responded for {:.1} s",
         stalled.as_secs_f32()
     );
     match sample(pid) {
-        Some(path) => eprintln!("fffFinder: thread stacks saved to {}", path.display()),
-        None => eprintln!("fffFinder: attach a debugger to process {pid} to see where it is stuck"),
+        Some(path) => eprintln!("fff-Finder: thread stacks saved to {}", path.display()),
+        None => {
+            eprintln!("fff-Finder: attach a debugger to process {pid} to see where it is stuck")
+        }
     }
 }
 
@@ -68,7 +70,7 @@ fn sample(pid: u32) -> Option<PathBuf> {
     if !cfg!(target_os = "macos") {
         return None;
     }
-    let dir = fff_finder_core::config::data_dir();
+    let dir = fff_Finder_core::config::data_dir();
     std::fs::create_dir_all(&dir).ok()?;
     let stamp = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)

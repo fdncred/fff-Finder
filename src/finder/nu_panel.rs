@@ -5,13 +5,16 @@ use super::Finder;
 use crate::actions::ToggleNuPanel;
 use crate::nushell::NuOutput;
 use crate::theme::palette;
+use crate::theme::ui;
 use gpui_kit::TestSupportExt as _;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::Input;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::spinner::Spinner;
-use gpui_kit::component::{ActiveTheme as _, Icon, IconName, Sizable as _, h_flex, v_flex};
+use gpui_kit::component::{
+    ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _, h_flex, v_flex,
+};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::ops::Range;
@@ -32,6 +35,8 @@ impl Finder {
         let theme = cx.theme().clone();
         let border = theme.border;
         let muted = theme.muted_foreground;
+        // Settings › Nushell text size; 12 is the default.
+        let size = self.config.nu_font_size();
         let input_count = {
             let n = self.selected_entries().len();
             if n == 0 { self.rows.len() } else { n }
@@ -44,20 +49,23 @@ impl Finder {
                 if input_count == 1 { "" } else { "s" }
             )
         };
+        let can_clear = self.nu_result.is_some()
+            || self.nu_running
+            || !self.nu_input.read(cx).value().is_empty();
         let header = h_flex()
-            .h(px(40.))
+            .h(ui(40.))
             .flex_shrink_0()
-            .px(px(12.))
-            .gap(px(8.))
+            .px(ui(12.))
+            .gap(ui(8.))
             .child(
                 Icon::new(Lucide::Terminal)
-                    .with_size(px(15.))
+                    .with_size(ui(15.))
                     .text_color(theme.primary),
             )
             .child(
                 div()
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_size(px(12.))
+                    .text_size(ui(12.))
                     .child("Nushell"),
             )
             .child(
@@ -65,7 +73,8 @@ impl Finder {
                     .id("nu-input")
                     .small()
                     .flex_1()
-                    .font_family(theme.mono_font_family.clone()),
+                    .font_family(theme.mono_font_family.clone())
+                    .text_size(ui(size)),
             )
             .child(
                 Button::new("nu-run")
@@ -74,6 +83,14 @@ impl Finder {
                     .label("Run")
                     .loading(self.nu_running)
                     .on_click(cx.listener(|this, _, window, cx| this.run_nu_pipeline(window, cx))),
+            )
+            .child(
+                Button::new("nu-clear")
+                    .small()
+                    .label("Clear")
+                    .tooltip("Clear the pipeline and its result")
+                    .disabled(!can_clear)
+                    .on_click(cx.listener(|this, _, window, cx| this.clear_nu(window, cx))),
             )
             .child(
                 Button::new("nu-close")
@@ -97,9 +114,9 @@ impl Finder {
                 let view = cx.entity();
                 v_flex()
                     .size_full()
-                    .p(px(12.))
-                    .gap(px(6.))
-                    .text_size(px(12.))
+                    .p(ui(12.))
+                    .gap(ui(6.))
+                    .text_size(ui(size))
                     .text_color(muted)
                     .child(format!(
                         "{scope_label}. Each item has name, path, type, kind, size, and modified. Try:"
@@ -129,15 +146,15 @@ impl Finder {
                         div()
                             .id("nu-error-scroll")
                             .flex_shrink_0()
-                            .max_h(px(140.))
+                            .max_h(ui(140.))
                             .overflow_y_scrollbar()
-                            .m(px(8.))
-                            .p(px(8.))
-                            .rounded(px(6.))
+                            .m(ui(8.))
+                            .p(ui(8.))
+                            .rounded(ui(6.))
                             .bg(theme.danger.opacity(0.12))
                             .text_color(theme.danger)
                             .font_family(theme.mono_font_family.clone())
-                            .text_size(px(11.5))
+                            .text_size(ui(size - 0.5))
                             // The scrollbar wrapper hides its own element from UI
                             // tests, so the text inside is the observed one.
                             .child(div().id("nu-error").test_support().child(error.clone())),
@@ -145,8 +162,8 @@ impl Finder {
                 }
                 col = col.child(match &run.output {
                     NuOutput::Empty if run.error.is_none() => div()
-                        .p(px(12.))
-                        .text_size(px(12.))
+                        .p(ui(12.))
+                        .text_size(ui(size))
                         .text_color(muted)
                         .child("The pipeline returned nothing.")
                         .into_any_element(),
@@ -156,21 +173,21 @@ impl Finder {
                         .flex_1()
                         .min_h_0()
                         .overflow_y_scrollbar()
-                        .p(px(12.))
+                        .p(ui(12.))
                         .font_family(theme.mono_font_family.clone())
-                        .text_size(px(12.))
+                        .text_size(ui(size))
                         .child(div().id("nu-text").test_support().child(text.clone()))
                         .into_any_element(),
                     NuOutput::Table { columns, rows } => {
-                        self.render_nu_table(columns, rows.len(), cx)
+                        self.render_nu_table(columns, rows.len(), size, cx)
                     }
                 });
                 col.child(
                     h_flex()
-                        .h(px(22.))
+                        .h(ui(size + 10.))
                         .flex_shrink_0()
-                        .px(px(12.))
-                        .text_size(px(10.5))
+                        .px(ui(12.))
+                        .text_size(ui(size - 1.5))
                         .text_color(muted)
                         .child(format!(
                             "{scope_label} · {:.0} ms",
@@ -182,7 +199,10 @@ impl Finder {
         };
 
         v_flex()
-            .h(px(260.))
+            // Taller for bigger text, up to half again, and never more than
+            // half the window.
+            .h(ui(260. * (size / 12.).clamp(1., 1.5)))
+            .max_h(relative(0.5))
             .flex_shrink_0()
             .border_t_1()
             .border_color(border)
@@ -202,30 +222,33 @@ impl Finder {
         &self,
         columns: &[String],
         len: usize,
+        size: f32,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let theme = cx.theme();
         let ncols = columns.len().max(1);
+        // Column widths grow with the text.
+        let (index_w, min_w) = (ui(44. * size / 12.), ui(90. * size / 12.));
         let header = h_flex()
             .flex_shrink_0()
             .w_full()
-            .h(px(24.))
+            .h(ui(size + 12.))
             .bg(theme.muted)
-            .text_size(px(11.5))
+            .text_size(ui(size - 0.5))
             .font_weight(FontWeight::SEMIBOLD)
             .child(
                 div()
-                    .w(px(44.))
-                    .px(px(8.))
+                    .w(index_w)
+                    .px(ui(8.))
                     .text_color(theme.muted_foreground)
                     .child("#"),
             )
             .children(columns.iter().map(|c| {
                 div()
                     .flex_1()
-                    .flex_basis(px(0.))
-                    .min_w(px(90.))
-                    .px(px(8.))
+                    .flex_basis(ui(0.))
+                    .min_w(min_w)
+                    .px(ui(8.))
                     .truncate()
                     .child(c.clone())
             }));
@@ -246,23 +269,23 @@ impl Finder {
                     .filter_map(|ix| rows.get(ix).map(|row| (ix, row)))
                     .map(|(ix, row)| {
                         h_flex()
-                            .h(px(22.))
+                            .h(ui(size + 10.))
                             .w_full()
-                            .text_size(px(11.5))
+                            .text_size(ui(size - 0.5))
                             .when(ix % 2 == 1, |this| this.bg(pal.stripe))
                             .child(
                                 div()
-                                    .w(px(44.))
-                                    .px(px(8.))
+                                    .w(index_w)
+                                    .px(ui(8.))
                                     .text_color(muted)
                                     .child(ix.to_string()),
                             )
                             .children((0..ncols).map(|c| {
                                 div()
                                     .flex_1()
-                                    .flex_basis(px(0.))
-                                    .min_w(px(90.))
-                                    .px(px(8.))
+                                    .flex_basis(ui(0.))
+                                    .min_w(min_w)
+                                    .px(ui(8.))
                                     .truncate()
                                     .child(row.get(c).cloned().unwrap_or_default())
                             }))

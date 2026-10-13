@@ -1,70 +1,219 @@
-//! fffFinder: a Finder-style file search app on fff-search and GPUI Kit.
+//! fff-Finder: a Finder-style file search app on fff-search and GPUI Kit.
 //! The binary is a thin wrapper around [`run`]; the library also backs the
 //! headless screenshot tool in `examples/screenshot.rs`.
 
+// The library is named `fff_Finder`, after the app, which isn't snake case.
+#![allow(non_snake_case)]
+
 pub mod actions;
+pub mod ansi;
 pub mod args;
 pub mod assets;
 pub mod finder;
+pub mod macos;
 pub mod model;
+pub mod nu_env;
 pub mod nushell;
 pub mod picker;
+pub mod rename;
+pub mod server;
 pub mod system;
 pub mod theme;
+pub mod user_actions;
 pub mod watchdog;
 
 use crate::finder::{AppState, Finder, PickerOptions};
 use crate::model::Location;
-use fff_finder_core::{Config, Engine, EngineOptions, config};
+use fff_Finder_core::{Config, Engine, EngineOptions, config};
 use gpui_kit::*;
 use std::path::PathBuf;
 
 /// Start indexing, open the first window, and run until it closes.
 pub fn run(args: args::Args) {
+    config::migrate_legacy_dirs();
     let config = Config::load();
     let start = start_location(args.path.as_ref(), &config);
     let picker = args.pick.then_some(PickerOptions {
         multiple: args.multiple,
     });
+    // One app, one index: a second launch hands its folder and search to the
+    // window that is already open.
+    if picker.is_none() {
+        let path = args
+            .path
+            .as_ref()
+            .map(|p| std::path::absolute(p).unwrap_or_else(|_| p.clone()));
+        if server::client::forward_open(path.as_deref(), args.query.as_deref()) {
+            return;
+        }
+    }
     // Indexing starts right away, in the background.
     let engine = Engine::new(EngineOptions {
         roots: config.search_roots.clone(),
         db_dir: Some(config::data_dir().join("gui")),
         watch: true,
+        search: config.search.clone(),
     });
     let nu = nushell::find_nu(config.nu_path.as_deref());
 
-    gpui_kit::application()
+    // macOS keeps running with no windows open, like Finder, so the index
+    // stays warm for Nushell; elsewhere closing the last window quits.
+    let app = gpui_kit::application()
         .with_assets(assets::AppAssets)
-        .with_quit_mode(QuitMode::LastWindowClosed)
-        .run(move |cx: &mut App| {
-            init(
-                cx,
-                AppState {
-                    engine,
-                    nu,
-                    terminals: None,
-                },
-                config.appearance,
-            );
-            watchdog::start_if_enabled(cx);
-            cx.on_action(move |_: &actions::Quit, cx: &mut App| {
-                if picker.is_some() {
-                    picker::cancel();
-                }
-                cx.quit();
-            });
-            cx.on_action(|_: &actions::NewWindow, cx: &mut App| {
-                let config = Config::load();
-                open_window(start_location(None, &config), None, None, cx);
-            });
-            open_window(start, args.query.clone(), picker, cx);
-            cx.activate(true);
+        .with_quit_mode(if picker.is_some() {
+            QuitMode::LastWindowClosed
+        } else {
+            QuitMode::Default
         });
+    app.on_reopen(|cx| {
+        if cx.windows().is_empty() {
+            open_window(start_location(None, &Config::load()), None, None, cx);
+        }
+    });
+    app.run(move |cx: &mut App| {
+        let server_engine = engine.clone();
+        init(
+            cx,
+            AppState {
+                engine,
+                nu,
+                terminals: None,
+            },
+            config.appearance,
+        );
+        watchdog::start_if_enabled(cx);
+        if picker.is_none() {
+            serve(server_engine, cx);
+        }
+        cx.on_action(move |_: &actions::Quit, cx: &mut App| {
+            if picker.is_some() {
+                picker::cancel();
+            }
+            cx.quit();
+        });
+        cx.on_action(|_: &actions::NewWindow, cx: &mut App| {
+            let config = Config::load();
+            open_window(start_location(None, &config), None, None, cx);
+        });
+        open_window(start, args.query.clone(), picker, cx);
+        cx.activate(true);
+    });
+}
+
+/// Browser windows, oldest first, for requests that need "the window".
+#[derive(Default)]
+struct Windows(Vec<(AnyWindowHandle, WeakEntity<Finder>)>);
+
+impl Global for Windows {}
+
+/// Keeps the control server alive for the life of the app.
+struct ServerGuard(#[allow(dead_code)] server::Server);
+
+impl Global for ServerGuard {}
+
+/// The window a request should go to: the active one, else the newest.
+fn frontmost(cx: &mut App) -> Option<(AnyWindowHandle, Entity<Finder>)> {
+    let active = cx.active_window();
+    let windows = &mut cx.default_global::<Windows>().0;
+    windows.retain(|(_, view)| view.upgrade().is_some());
+    let pick = windows
+        .iter()
+        .rev()
+        .find(|(handle, _)| Some(*handle) == active)
+        .or_else(|| windows.last())?;
+    Some((pick.0, pick.1.upgrade()?))
+}
+
+/// Answer the control socket (see `docs/protocol.md`).
+fn serve(engine: std::sync::Arc<Engine>, cx: &mut App) {
+    let (tx, rx) = async_channel::unbounded();
+    match server::start(engine, Some(tx)) {
+        Ok(server) => {
+            cx.set_global(ServerGuard(server));
+            // Remove the socket and server.json on a normal quit.
+            cx.on_app_quit(|cx| {
+                cx.remove_global::<ServerGuard>();
+                async {}
+            })
+            .detach();
+        }
+        Err(err) => {
+            log::warn!("control socket: {err}");
+            return;
+        }
+    }
+    cx.spawn(async move |cx| {
+        while let Ok(request) = rx.recv().await {
+            cx.update(|cx| handle_request(request, cx));
+        }
+    })
+    .detach();
+}
+
+fn handle_request(request: server::UiRequest, cx: &mut App) {
+    use serde_json::json;
+    use server::UiRequest;
+    match request {
+        UiRequest::Selection { all, reply } => {
+            let answer = frontmost(cx)
+                .map(|(_, view)| view.read(cx).selection_json(all))
+                .ok_or_else(|| "no window is open".to_string());
+            let _ = reply.send(answer);
+        }
+        UiRequest::Show {
+            paths,
+            title,
+            reply,
+        } => {
+            let title = title.unwrap_or_else(|| "From Nushell".into());
+            let (missing, found): (Vec<PathBuf>, Vec<PathBuf>) =
+                paths.into_iter().partition(|p| !p.exists());
+            if found.is_empty() {
+                let _ = reply.send(Err("none of the paths exist".into()));
+                return;
+            }
+            let shown = found.len();
+            match frontmost(cx) {
+                Some((handle, view)) => {
+                    let _ = handle.update(cx, |_, window, cx| {
+                        view.update(cx, |f, cx| f.show_results(title, found, window, cx));
+                        window.activate_window();
+                    });
+                }
+                None => {
+                    let location = Location::Results {
+                        title,
+                        paths: std::sync::Arc::new(found),
+                    };
+                    open_window(location, None, None, cx);
+                }
+            }
+            cx.activate(true);
+            let _ = reply.send(Ok(json!({ "shown": shown, "missing": missing })));
+        }
+        UiRequest::Open { path, query, reply } => {
+            match frontmost(cx) {
+                Some((handle, view)) => {
+                    let _ = handle.update(cx, |_, window, cx| {
+                        view.update(cx, |f, cx| {
+                            f.open_request(path.as_deref(), query.as_deref(), window, cx)
+                        });
+                        window.activate_window();
+                    });
+                }
+                None => {
+                    let start = start_location(path.as_ref(), &Config::load());
+                    open_window(start, query, None, cx);
+                }
+            }
+            cx.activate(true);
+            let _ = reply.send(Ok(json!({ "ok": true })));
+        }
+    }
 }
 
 /// Kit, theme, shared state, key bindings, and menus.
-pub fn init(cx: &mut App, state: AppState, appearance: fff_finder_core::Appearance) {
+pub fn init(cx: &mut App, state: AppState, appearance: fff_Finder_core::Appearance) {
     gpui_kit::init(cx);
     theme::install(cx);
     theme::apply(appearance, None, cx);
@@ -106,7 +255,7 @@ pub fn window_options(title: SharedString, cx: &App) -> WindowOptions {
             traffic_light_position: mac.then(|| point(px(18.), px(18.))),
         }),
         app_owns_titlebar_drag: mac,
-        app_id: Some("fffFinder".into()),
+        app_id: Some("fff-Finder".into()),
         ..Default::default()
     }
 }
@@ -120,7 +269,7 @@ pub fn open_window(
     let title: SharedString = match picker {
         Some(PickerOptions { multiple: true }) => "Choose Files".into(),
         Some(_) => "Choose a File".into(),
-        None => "fffFinder".into(),
+        None => "fff-Finder".into(),
     };
     let options = window_options(title.clone(), cx);
     let result = gpui_kit::open_window(options, cx, move |window, cx| {
@@ -134,9 +283,14 @@ pub fn open_window(
         view
     });
     match result {
-        Ok(opened) => Some(opened),
+        Ok((handle, view)) => {
+            cx.default_global::<Windows>()
+                .0
+                .push((handle, view.downgrade()));
+            Some((handle, view))
+        }
         Err(err) => {
-            eprintln!("fffFinder: could not open a window: {err}");
+            eprintln!("fff-Finder: could not open a window: {err}");
             None
         }
     }

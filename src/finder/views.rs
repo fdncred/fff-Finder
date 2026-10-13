@@ -2,8 +2,9 @@
 //! file icons, and dragging files out to other apps.
 
 use super::{Finder, Row};
-use crate::theme::{Palette, palette};
-use fff_finder_core::{FileEntry, FileKind, SortKey, ViewMode};
+use crate::macos::IconLookup;
+use crate::theme::{Palette, palette, ui};
+use fff_Finder_core::{FileEntry, FileKind, SortKey, ViewMode};
 use gpui_kit::TestSupportExt as _;
 use gpui_kit::component::menu::ContextMenuExt as _;
 use gpui_kit::component::scroll::ScrollableElement as _;
@@ -36,16 +37,16 @@ impl Render for DragPreview {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         h_flex()
-            .gap(px(6.))
-            .px(px(8.))
-            .py(px(4.))
-            .rounded(px(6.))
+            .gap(ui(6.))
+            .px(ui(8.))
+            .py(ui(4.))
+            .rounded(ui(6.))
             .bg(theme.popover)
             .border_1()
             .border_color(theme.border)
             .shadow_md()
-            .text_size(px(12.))
-            .child(img(self.icon).size(px(18.)))
+            .text_size(ui(12.))
+            .child(img(self.icon).size(ui(18.)))
             .child(self.label.clone())
     }
 }
@@ -84,7 +85,19 @@ pub fn file_icon(entry: &FileEntry, size: Pixels, thumbnails: bool, pal: &Palett
             .with_fallback(move || img(fallback).size_full().into_any_element())
             .into_any_element();
     }
-    let badge = (size >= px(40.)
+    // Finder's own icon for this type, on macOS.
+    let later = match crate::macos::file_icon(entry, f32::from(size)) {
+        IconLookup::Ready(icon) => {
+            return img(icon)
+                .size(size)
+                .flex_shrink_0()
+                .object_fit(ObjectFit::Contain)
+                .into_any_element();
+        }
+        IconLookup::Later => true,
+        IconLookup::Unavailable => false,
+    };
+    let badge = (size >= ui(40.)
         && !matches!(entry.kind, FileKind::Folder | FileKind::Application))
     .then(|| entry.badge())
     .flatten();
@@ -93,6 +106,7 @@ pub fn file_icon(entry: &FileEntry, size: Pixels, thumbnails: bool, pal: &Palett
         .relative()
         .flex_shrink_0()
         .child(img(entry.kind.icon_asset()).size_full())
+        .when(later, |this| this.child(redraw_soon()))
         .when_some(badge, |this, badge| {
             this.child(
                 div()
@@ -111,29 +125,59 @@ pub fn file_icon(entry: &FileEntry, size: Pixels, thumbnails: bool, pal: &Palett
         .into_any_element()
 }
 
+/// An empty element that asks for another frame once painted, for an icon
+/// that will be ready by then.
+pub fn redraw_soon() -> impl IntoElement {
+    canvas(
+        |_, _, _| {},
+        |_, _, window, _| window.request_animation_frame(),
+    )
+    .absolute()
+    .size_0()
+}
+
 /// The file name with search matches emphasized.
 fn name_text(row: &Row, selected: bool, pal: &Palette) -> AnyElement {
-    if row.highlights.is_empty() {
-        return div().truncate().child(row.name.clone()).into_any_element();
-    }
-    let highlights = row
-        .highlights
-        .iter()
-        .filter(|(a, b)| a < b && *b <= row.name.len())
-        .map(|&(a, b)| {
-            (
-                a..b,
-                HighlightStyle {
-                    font_weight: Some(FontWeight::BOLD),
-                    background_color: (!selected).then_some(pal.highlight),
-                    ..Default::default()
-                },
-            )
-        });
+    let style = row.name_style.as_ref().filter(|_| !selected);
+    let match_bg = (!selected).then_some(pal.highlight);
     div()
         .truncate()
-        .child(StyledText::new(row.name.clone()).with_highlights(highlights.collect::<Vec<_>>()))
+        .child(styled_name(&row.name, style, &row.highlights, match_bg))
         .into_any_element()
+}
+
+/// A name drawn the way `ls` draws it (`LS_COLORS`: colors, a background
+/// behind the letters, bold, underline), with `matches` in bold on
+/// `match_bg`.
+pub fn styled_name(
+    name: &SharedString,
+    style: Option<&crate::nu_env::NameStyle>,
+    matches: &[(usize, usize)],
+    match_bg: Option<Hsla>,
+) -> StyledText {
+    let base = style.map(|s| s.highlight()).unwrap_or_default();
+    let mut highlights = Vec::new();
+    let mut at = 0;
+    for &(a, b) in matches {
+        if a < at || a >= b || b > name.len() {
+            continue;
+        }
+        if at < a {
+            highlights.push((at..a, base));
+        }
+        let matched = HighlightStyle {
+            font_weight: Some(FontWeight::BOLD),
+            background_color: match_bg.or(base.background_color),
+            ..base
+        };
+        highlights.push((a..b, matched));
+        at = b;
+    }
+    if at < name.len() {
+        highlights.push((at..name.len(), base));
+    }
+    highlights.retain(|(_, style)| *style != HighlightStyle::default());
+    StyledText::new(name.clone()).with_highlights(highlights)
 }
 
 impl Finder {
@@ -233,8 +277,10 @@ impl Finder {
             .size_full()
             .relative()
             .on_prepaint(move |bounds, _, cx| {
-                let width = f32::from(bounds.size.width) - GRID_PADDING * 2.;
-                let n = ((width / tile_w).floor() as usize).max(1);
+                // Tiles are drawn at the UI scale; the bounds are real pixels.
+                let scale = crate::theme::ui_scale();
+                let width = f32::from(bounds.size.width) - GRID_PADDING * 2. * scale;
+                let n = ((width / (tile_w * scale)).floor() as usize).max(1);
                 view.update(cx, |this, cx| {
                     if this.grid_cols != n {
                         this.grid_cols = n;
@@ -251,15 +297,15 @@ impl Finder {
                         for line in range {
                             let start = line * cols;
                             let end = (start + cols).min(this.rows.len());
-                            let mut row = h_flex().px(px(GRID_PADDING)).items_start();
+                            let mut row = h_flex().px(ui(GRID_PADDING)).items_start();
                             if line == 0 {
-                                row = row.pt(px(GRID_PADDING / 2.));
+                                row = row.pt(ui(GRID_PADDING / 2.));
                             }
                             for ix in start..end {
                                 row = row.child(this.render_tile(ix, tile_w, tile_h, cx));
                             }
                             out.push(
-                                row.h(px(tile_h + if line == 0 { GRID_PADDING / 2. } else { 0. })),
+                                row.h(ui(tile_h + if line == 0 { GRID_PADDING / 2. } else { 0. })),
                             );
                         }
                         out
@@ -294,28 +340,28 @@ impl Finder {
         let row = &self.rows[ix];
         let selected = self.selection.contains(ix);
         let focused_selection = selected;
-        let icon = px(self.config.icon_size);
+        let icon = ui(self.config.icon_size);
         let el = v_flex()
             .id(("tile", super::views::path_id(&row.entry.path)))
-            .w(px(tile_w))
-            .h(px(tile_h))
+            .w(ui(tile_w))
+            .h(ui(tile_h))
             .items_center()
-            .pt(px(4.))
-            .gap(px(4.))
+            .pt(ui(4.))
+            .gap(ui(4.))
             .child(
                 div()
-                    .p(px(4.))
-                    .rounded(px(6.))
+                    .p(ui(4.))
+                    .rounded(ui(6.))
                     .when(selected, |this| this.bg(pal.tile_selected))
                     .child(file_icon(&row.entry, icon, true, &pal)),
             )
             .child(
                 div()
-                    .max_w(px(tile_w - 8.))
-                    .px(px(5.))
-                    .py(px(1.))
-                    .rounded(px(4.))
-                    .text_size(px(12.))
+                    .max_w(ui(tile_w - 8.))
+                    .px(ui(5.))
+                    .py(ui(1.))
+                    .rounded(ui(4.))
+                    .text_size(ui(12.))
                     .text_center()
                     .line_clamp(2)
                     .when(focused_selection, |this| {
@@ -324,7 +370,12 @@ impl Finder {
                     .when(!selected && row.entry.hidden, |this| {
                         this.text_color(theme.muted_foreground)
                     })
-                    .child(row.name.clone()),
+                    .child(styled_name(
+                        &row.name,
+                        row.name_style.as_ref().filter(|_| !selected),
+                        &[],
+                        None,
+                    )),
             )
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
         self.item_interactions(el, ix, div(), cx)
@@ -338,12 +389,13 @@ impl Finder {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let theme = cx.theme();
-        let searching = self.is_searching();
+        let searching = self.shows_parent_column();
         let sort = self.current_sort();
         let header_color = theme.muted_foreground;
         let border = theme.border;
         let len = self.rows.len();
-        let visible = (f32::from(self.content_height) / LIST_ROW).ceil() as usize;
+        let row = LIST_ROW * crate::theme::ui_scale();
+        let visible = (f32::from(self.content_height) / row).ceil() as usize;
         let filler = visible.saturating_sub(len + 1);
         let active = self.files_focused(window);
 
@@ -352,8 +404,8 @@ impl Finder {
             h_flex()
                 .id(label)
                 .h_full()
-                .px(px(6.))
-                .gap(px(4.))
+                .px(ui(6.))
+                .gap(ui(4.))
                 .hover(|s| s.bg(cx.theme().list_hover))
                 .child(label)
                 .when(sorted, |this| {
@@ -363,7 +415,7 @@ impl Finder {
                         } else {
                             IconName::ChevronDown
                         })
-                        .with_size(px(12.)),
+                        .with_size(ui(12.)),
                     )
                 })
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| this.set_sort(key, cx)))
@@ -371,40 +423,42 @@ impl Finder {
         };
 
         let header = h_flex()
-            .h(px(28.))
+            .h(ui(28.))
             .flex_shrink_0()
-            .px(px(10.))
+            .px(ui(10.))
             .border_b_1()
             .border_color(border)
-            .text_size(px(12.))
+            .text_size(ui(12.))
             .font_weight(FontWeight::SEMIBOLD)
             .text_color(header_color)
-            .child(div().flex_1().min_w(px(160.)).h_full().child(header_cell(
+            .child(div().flex_1().min_w(ui(160.)).h_full().child(header_cell(
                 "Name",
                 SortKey::Name,
                 cx,
             )))
             .when(searching, |this| {
-                this.child(div().w(px(220.)).px(px(6.)).child(if self.search_contents {
-                    "Match"
-                } else {
-                    "Folder"
-                }))
+                this.child(div().w(ui(220.)).px(ui(6.)).child(
+                    if self.search_contents && self.is_searching() {
+                        "Match"
+                    } else {
+                        "Folder"
+                    },
+                ))
             })
-            .child(div().w(px(170.)).h_full().child(header_cell(
+            .child(div().w(ui(170.)).h_full().child(header_cell(
                 "Date Modified",
                 SortKey::Modified,
                 cx,
             )))
             .child(
                 div()
-                    .w(px(90.))
+                    .w(ui(90.))
                     .h_full()
                     .child(header_cell("Size", SortKey::Size, cx)),
             )
             .child(
                 div()
-                    .w(px(160.))
+                    .w(ui(160.))
                     .h_full()
                     .child(header_cell("Kind", SortKey::Kind, cx)),
             );
@@ -454,14 +508,14 @@ impl Finder {
         let theme = cx.theme();
         let stripe = ix % 2 == 1;
         let base = h_flex()
-            .h(px(LIST_ROW))
+            .h(ui(LIST_ROW))
             .w_full()
-            .px(px(2.))
-            .rounded(px(5.))
-            .text_size(px(12.))
+            .px(ui(2.))
+            .rounded(ui(5.))
+            .text_size(ui(12.))
             .when(stripe, |this| this.bg(pal.stripe));
         // Rows are inset from the edges, like Finder's rounded selection.
-        let inset = |el: AnyElement| div().w_full().px(px(8.)).child(el).into_any_element();
+        let inset = |el: AnyElement| div().w_full().px(ui(8.)).child(el).into_any_element();
         let Some(row) = self.rows.get(ix) else {
             return inset(base.id(("filler", ix)).into_any_element());
         };
@@ -484,18 +538,18 @@ impl Finder {
             .child(
                 h_flex()
                     .flex_1()
-                    .min_w(px(160.))
-                    .gap(px(6.))
-                    .px(px(6.))
+                    .min_w(ui(160.))
+                    .gap(ui(6.))
+                    .px(ui(6.))
                     .overflow_hidden()
-                    .child(file_icon(&row.entry, px(16.), false, &pal))
+                    .child(file_icon(&row.entry, ui(16.), false, &pal))
                     .child(name_text(row, selected, &pal)),
             )
             .when(searching, |this| {
                 this.child(
                     div()
-                        .w(px(220.))
-                        .px(px(6.))
+                        .w(ui(220.))
+                        .px(ui(6.))
                         .truncate()
                         .text_color(muted)
                         .child(row.detail.clone()),
@@ -503,16 +557,16 @@ impl Finder {
             })
             .child(
                 div()
-                    .w(px(170.))
-                    .px(px(6.))
+                    .w(ui(170.))
+                    .px(ui(6.))
                     .truncate()
                     .text_color(muted)
                     .child(row.date.clone()),
             )
             .child(
                 div()
-                    .w(px(90.))
-                    .px(px(6.))
+                    .w(ui(90.))
+                    .px(ui(6.))
                     .flex()
                     .justify_end()
                     .text_color(muted)
@@ -520,14 +574,14 @@ impl Finder {
             )
             .child(
                 div()
-                    .w(px(160.))
-                    .px(px(10.))
+                    .w(ui(160.))
+                    .px(ui(10.))
                     .truncate()
                     .text_color(muted)
                     .child(row.kind.clone()),
             )
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation());
-        self.item_interactions(el, ix, div().w_full().px(px(8.)), cx)
+        self.item_interactions(el, ix, div().w_full().px(ui(8.)), cx)
     }
 
     // ----- columns -------------------------------------------------------------
@@ -562,13 +616,13 @@ impl Finder {
             .track_scroll(&self.columns[col].scroll);
             panes.push(
                 div()
-                    .w(px(COLUMN_WIDTH))
+                    .w(ui(COLUMN_WIDTH))
                     .h_full()
                     .flex_shrink_0()
                     .relative()
                     .border_r_1()
                     .border_color(border)
-                    .py(px(4.))
+                    .py(ui(4.))
                     .child(list)
                     .vertical_scrollbar(&self.columns[col].scroll)
                     .into_any_element(),
@@ -577,10 +631,10 @@ impl Finder {
         if let Some(entry) = leaf {
             panes.push(
                 div()
-                    .w(px(300.))
+                    .w(ui(300.))
                     .h_full()
                     .flex_shrink_0()
-                    .p(px(14.))
+                    .p(ui(14.))
                     .child(super::preview::render_preview_card(self, &entry, cx))
                     .into_any_element(),
             );
@@ -625,12 +679,12 @@ impl Finder {
         let menu_entry = entry.clone();
         let row = h_flex()
             .id(("crow", path_id(&entry.path)))
-            .h(px(COLUMN_ROW))
+            .h(ui(COLUMN_ROW))
             .w_full()
-            .px(px(6.))
-            .gap(px(6.))
-            .rounded(px(5.))
-            .text_size(px(12.))
+            .px(ui(6.))
+            .gap(ui(6.))
+            .rounded(ui(5.))
+            .text_size(ui(12.))
             .text_color(fg)
             .when(selected, |this| {
                 this.bg(if current {
@@ -639,12 +693,23 @@ impl Finder {
                     pal.selection_inactive
                 })
             })
-            .child(file_icon(entry, px(16.), false, &pal))
-            .child(div().flex_1().truncate().child(entry.name.clone()))
+            .child(file_icon(entry, ui(16.), false, &pal))
+            .child(
+                div().flex_1().truncate().child(styled_name(
+                    &SharedString::from(entry.name.clone()),
+                    self.ls_colors
+                        .as_ref()
+                        .filter(|_| !(selected && current))
+                        .and_then(|colors| crate::nu_env::name_style(colors, entry))
+                        .as_ref(),
+                    &[],
+                    None,
+                )),
+            )
             .when(entry.is_navigable(), |this| {
                 this.child(
                     Icon::new(IconName::ChevronRight)
-                        .with_size(px(12.))
+                        .with_size(ui(12.))
                         .text_color(if selected && current {
                             fg
                         } else {
@@ -700,7 +765,7 @@ impl Finder {
         div()
             .id(("crow-menu", path_id(&menu_entry.path)))
             .w_full()
-            .px(px(6.))
+            .px(ui(6.))
             .child(row)
             .context_menu(move |menu, window, cx| super::menus::item_menu(&view, menu, window, cx))
             .into_any_element()
@@ -721,7 +786,7 @@ impl Finder {
         if let Some(entry) = &entry {
             self.ensure_preview(entry, cx);
         }
-        let sizes: Rc<Vec<Size<Pixels>>> = Rc::new(vec![size(px(96.), px(112.)); self.rows.len()]);
+        let sizes: Rc<Vec<Size<Pixels>>> = Rc::new(vec![size(ui(96.), ui(112.)); self.rows.len()]);
         let strip = h_virtual_list(
             cx.entity(),
             "gallery-strip",
@@ -740,19 +805,19 @@ impl Finder {
                 div()
                     .flex_1()
                     .min_h_0()
-                    .p(px(18.))
+                    .p(ui(18.))
                     .when_some(entry, |this, entry| {
                         this.child(super::preview::render_preview_large(self, &entry, cx))
                     }),
             )
             .child(
                 div()
-                    .h(px(120.))
+                    .h(ui(120.))
                     .flex_shrink_0()
                     .border_t_1()
                     .border_color(border)
-                    .px(px(8.))
-                    .pt(px(4.))
+                    .px(ui(8.))
+                    .pt(ui(4.))
                     .relative()
                     .child(strip)
                     .horizontal_scrollbar(&self.strip_scroll),
@@ -767,29 +832,34 @@ impl Finder {
         let selected = self.selection.contains(ix);
         let el = v_flex()
             .id(("strip", path_id(&row.entry.path)))
-            .w(px(96.))
-            .h(px(112.))
+            .w(ui(96.))
+            .h(ui(112.))
             .items_center()
-            .gap(px(4.))
-            .pt(px(6.))
+            .gap(ui(4.))
+            .pt(ui(6.))
             .child(
                 div()
-                    .p(px(4.))
-                    .rounded(px(6.))
+                    .p(ui(4.))
+                    .rounded(ui(6.))
                     .when(selected, |this| this.bg(pal.tile_selected))
-                    .child(file_icon(&row.entry, px(64.), true, &pal)),
+                    .child(file_icon(&row.entry, ui(64.), true, &pal)),
             )
             .child(
                 div()
-                    .max_w(px(90.))
-                    .px(px(4.))
-                    .rounded(px(4.))
-                    .text_size(px(11.))
+                    .max_w(ui(90.))
+                    .px(ui(4.))
+                    .rounded(ui(4.))
+                    .text_size(ui(11.))
                     .truncate()
                     .when(selected, |this| {
                         this.bg(pal.selection).text_color(pal.selection_text)
                     })
-                    .child(row.name.clone()),
+                    .child(styled_name(
+                        &row.name,
+                        row.name_style.as_ref().filter(|_| !selected),
+                        &[],
+                        None,
+                    )),
             );
         self.item_interactions(el, ix, div(), cx)
     }
@@ -803,34 +873,34 @@ impl Finder {
                 let icon = self.config.icon_size;
                 h_flex()
                     .flex_wrap()
-                    .gap(px(24.))
-                    .p(px(GRID_PADDING + 8.))
+                    .gap(ui(24.))
+                    .p(ui(GRID_PADDING + 8.))
                     .children((0..18usize).map(|i| {
                         v_flex()
                             .id(("sk-tile", i))
                             .items_center()
-                            .gap(px(8.))
-                            .child(Skeleton::new().w(px(icon)).h(px(icon)).rounded(px(8.)))
-                            .child(Skeleton::new().w(px(icon * 0.9)).h(px(10.)).rounded(px(4.)))
+                            .gap(ui(8.))
+                            .child(Skeleton::new().w(ui(icon)).h(ui(icon)).rounded(ui(8.)))
+                            .child(Skeleton::new().w(ui(icon * 0.9)).h(ui(10.)).rounded(ui(4.)))
                     }))
                     .into_any_element()
             }
             _ => v_flex()
-                .gap(px(10.))
-                .p(px(16.))
+                .gap(ui(10.))
+                .p(ui(16.))
                 .children((0..14usize).map(|i| {
                     h_flex()
                         .id(("sk-row", i))
-                        .gap(px(12.))
-                        .child(Skeleton::new().w(px(16.)).h(px(16.)).rounded(px(4.)))
+                        .gap(ui(12.))
+                        .child(Skeleton::new().w(ui(16.)).h(ui(16.)).rounded(ui(4.)))
                         .child(
                             Skeleton::new()
-                                .w(px(180. + (i % 4) as f32 * 40.))
-                                .h(px(10.)),
+                                .w(ui(180. + (i % 4) as f32 * 40.))
+                                .h(ui(10.)),
                         )
                         .child(div().flex_1())
-                        .child(Skeleton::new().w(px(120.)).h(px(10.)))
-                        .child(Skeleton::new().w(px(70.)).h(px(10.)))
+                        .child(Skeleton::new().w(ui(120.)).h(ui(10.)))
+                        .child(Skeleton::new().w(ui(70.)).h(ui(10.)))
                 }))
                 .into_any_element(),
         }

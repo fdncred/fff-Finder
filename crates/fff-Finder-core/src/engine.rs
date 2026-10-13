@@ -2,13 +2,15 @@
 //! parallel and merged by score. Folders outside every root get a temporary
 //! index on demand, so "search this folder" works anywhere.
 
+use crate::config::{SearchCase, SearchSettings};
 use crate::entry::{FileEntry, display_name};
 use crate::kind::{self, KindFilter};
 use fff_search::file_picker::FilePicker;
 use fff_search::{
-    DirSearchConfig, FFFMode, FilePickerOptions, FrecencyTracker, FuzzySearchOptions, GrepMode,
-    GrepSearchOptions, MixedItemRef, MixedSearchConfig, PaginationArgs, QueryParser, QueryTracker,
-    SharedFilePicker, SharedFrecency, SharedQueryTracker,
+    Casing, DirSearchConfig, FFFMode, FilePickerOptions, FrecencyTracker, FuzzySearchOptions,
+    GitRecencyConfig, GrepConfig, GrepMode, GrepSearchOptions, MixedItemRef, MixedSearchConfig,
+    PaginationArgs, QueryParser, QueryTracker, SharedFilePicker, SharedFrecency,
+    SharedQueryTracker, WatchEvent, WatchId, WatchOptions,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -25,18 +27,28 @@ pub struct EngineOptions {
     pub roots: Vec<PathBuf>,
     /// Directory for frecency/query-history databases; `None` disables them.
     pub db_dir: Option<PathBuf>,
-    /// Keep indexes live with filesystem watchers.
+    /// Keep indexes live with filesystem watchers (when `search.watch` is on).
     pub watch: bool,
+    /// fff-search's options from Settings.
+    pub search: SearchSettings,
 }
 
 #[derive(Clone)]
 struct RootIndex {
     path: PathBuf,
+    /// `path` with symlinks resolved, to recognize folders spelled another
+    /// way (`/private/var/…` for `/var/…` on macOS).
+    canonical: PathBuf,
     picker: SharedFilePicker,
 }
 
 impl RootIndex {
-    fn start(path: &Path, frecency: &SharedFrecency, watch: bool) -> anyhow::Result<RootIndex> {
+    fn start(
+        path: &Path,
+        frecency: &SharedFrecency,
+        watch: bool,
+        settings: &SearchSettings,
+    ) -> anyhow::Result<RootIndex> {
         let picker = SharedFilePicker::default();
         FilePicker::new_with_shared_state(
             picker.clone(),
@@ -44,8 +56,14 @@ impl RootIndex {
             FilePickerOptions {
                 base_path: path.to_string_lossy().into_owned(),
                 mode: FFFMode::Neovim,
-                watch,
-                follow_symlinks: false,
+                watch: watch && settings.watch,
+                follow_symlinks: settings.follow_symlinks,
+                enable_content_indexing: settings.content_index,
+                enable_mmap_cache: settings.preload_files,
+                git_recency: GitRecencyConfig {
+                    enabled: settings.git_recency,
+                    ..Default::default()
+                },
                 // Roots are chosen by the user, so home and `/` are allowed.
                 enable_fs_root_scanning: true,
                 enable_home_dir_scanning: true,
@@ -55,6 +73,7 @@ impl RootIndex {
         .map_err(|e| anyhow::anyhow!("cannot index {}: {e}", path.display()))?;
         Ok(RootIndex {
             path: path.to_path_buf(),
+            canonical: std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()),
             picker,
         })
     }
@@ -73,6 +92,7 @@ impl RootIndex {
                     } else {
                         p.live_file_count()
                     },
+                    indexed_dirs: p.get_dirs().iter().filter(|d| !d.is_deleted()).count(),
                     git_repo: p.has_git_repo(),
                 }
             }
@@ -80,6 +100,7 @@ impl RootIndex {
                 path: self.path.clone(),
                 scanning: true,
                 indexed_files: 0,
+                indexed_dirs: 0,
                 git_repo: false,
             },
         }
@@ -92,6 +113,8 @@ pub struct RootStatus {
     pub scanning: bool,
     /// Files scanned so far while scanning, or live files once ready.
     pub indexed_files: usize,
+    #[serde(default)]
+    pub indexed_dirs: usize,
     pub git_repo: bool,
 }
 
@@ -103,6 +126,8 @@ pub struct SearchRequest {
     pub kind: KindFilter,
     pub limit: usize,
     pub show_hidden: bool,
+    /// With [`KindFilter::Any`], leave folders out.
+    pub files_only: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -124,12 +149,31 @@ pub struct SearchResponse {
     pub indexing: bool,
 }
 
+/// How `GrepRequest::patterns` match.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GrepModeKind {
+    #[default]
+    Plain,
+    Regex,
+    /// Tolerates typos and gaps.
+    Fuzzy,
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct GrepRequest {
-    pub pattern: String,
+    /// One or more patterns; a line matching any of them is a hit.
+    pub patterns: Vec<String>,
+    pub mode: GrepModeKind,
     pub scope: Option<PathBuf>,
-    pub regex: bool,
     pub limit: usize,
+    /// Context lines to include around each match.
+    pub before: usize,
+    pub after: usize,
+    /// Matches kept per file; 0 keeps up to `limit`.
+    pub per_file: usize,
+    /// Strip leading whitespace from lines (for display).
+    pub trim: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -137,8 +181,24 @@ pub struct GrepHit {
     pub path: PathBuf,
     pub line: u64,
     pub column: usize,
+    /// Offset of the line from the start of the file.
+    pub byte_offset: u64,
     pub text: String,
+    /// Byte ranges within `text`.
     pub ranges: Vec<(usize, usize)>,
+    pub context_before: Vec<String>,
+    pub context_after: Vec<String>,
+}
+
+/// An indexed file or folder, for listing the whole index.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct IndexedItem {
+    pub path: PathBuf,
+    /// The search location it belongs to.
+    pub root: PathBuf,
+    pub is_dir: bool,
+    pub size: u64,
+    pub modified: u64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -148,6 +208,23 @@ pub struct GrepResponse {
     pub files_searched: usize,
     pub elapsed: Duration,
     pub indexing: bool,
+    /// The time limit (Settings › Search engine) ended the search before
+    /// every file was searched.
+    pub stopped: bool,
+}
+
+/// A change subscription from [`Engine::watch`]; dropping it unsubscribes.
+pub struct Watch {
+    pub events: std::sync::mpsc::Receiver<Vec<WatchEvent>>,
+    subscriptions: Vec<(SharedFilePicker, WatchId)>,
+}
+
+impl Drop for Watch {
+    fn drop(&mut self) {
+        for (picker, id) in &self.subscriptions {
+            picker.unwatch(*id);
+        }
+    }
 }
 
 #[derive(Default)]
@@ -161,6 +238,7 @@ pub struct Engine {
     frecency: SharedFrecency,
     queries: SharedQueryTracker,
     watch: bool,
+    search: RwLock<SearchSettings>,
     generation: AtomicU64,
 }
 
@@ -172,6 +250,7 @@ impl Engine {
             frecency,
             queries,
             watch: options.watch,
+            search: RwLock::new(options.search),
             generation: AtomicU64::new(0),
         });
         engine.set_roots(&options.roots);
@@ -181,6 +260,7 @@ impl Engine {
     /// Replace the indexed roots. Unchanged roots keep their index.
     pub fn set_roots(&self, roots: &[PathBuf]) {
         let roots = normalize_roots(roots);
+        let settings = self.search_settings();
         let mut indexes = self.indexes.write().unwrap_or_else(|e| e.into_inner());
         let mut keep: Vec<RootIndex> = Vec::new();
         for root in &roots {
@@ -188,12 +268,36 @@ impl Engine {
                 keep.push(existing.clone());
                 continue;
             }
-            match RootIndex::start(root, &self.frecency, self.watch) {
+            match RootIndex::start(root, &self.frecency, self.watch, &settings) {
                 Ok(index) => keep.push(index),
                 Err(err) => log::warn!("{err}"),
             }
         }
         indexes.roots = keep;
+        self.generation.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn search_settings(&self) -> SearchSettings {
+        self.search
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// Use new fff-search options. Changing how folders are indexed (symlinks,
+    /// watching, git recency, content index, preloading) rebuilds every index.
+    pub fn set_search_settings(&self, settings: SearchSettings) {
+        let reindex = {
+            let mut current = self.search.write().unwrap_or_else(|e| e.into_inner());
+            let reindex = current.index_options() != settings.index_options();
+            *current = settings;
+            reindex
+        };
+        if reindex {
+            let roots = self.roots();
+            *self.indexes.write().unwrap_or_else(|e| e.into_inner()) = Indexes::default();
+            self.set_roots(&roots);
+        }
         self.generation.fetch_add(1, Ordering::Relaxed);
     }
 
@@ -256,6 +360,24 @@ impl Engine {
         }
     }
 
+    /// `scope` spelled the way a root is, when it is inside one only after
+    /// resolving symlinks; `None` when it needs no change.
+    fn root_spelling(&self, scope: &Path) -> Option<PathBuf> {
+        let indexes = self.read_indexes();
+        if indexes.roots.iter().any(|r| scope.starts_with(&r.path)) {
+            return None;
+        }
+        let real = std::fs::canonicalize(scope).ok()?;
+        indexes.roots.iter().find_map(|r| {
+            let rest = real.strip_prefix(&r.canonical).ok()?;
+            Some(if rest.as_os_str().is_empty() {
+                r.path.clone()
+            } else {
+                r.path.join(rest)
+            })
+        })
+    }
+
     /// Indexes covering `scope`: the roots containing it, or a temporary
     /// index of the folder itself when no root does.
     fn indexes_for(&self, scope: Option<&Path>) -> Vec<RootIndex> {
@@ -277,7 +399,7 @@ impl Engine {
                 return vec![index.clone()];
             }
         }
-        match RootIndex::start(scope, &self.frecency, self.watch) {
+        match RootIndex::start(scope, &self.frecency, self.watch, &self.search_settings()) {
             Ok(index) => {
                 let mut indexes = self.indexes.write().unwrap_or_else(|e| e.into_inner());
                 indexes.adhoc.retain(|r| r.path != scope);
@@ -293,6 +415,12 @@ impl Engine {
     }
 
     pub fn search(&self, req: &SearchRequest) -> SearchResponse {
+        if let Some(scope) = req.scope.as_deref().and_then(|s| self.root_spelling(s)) {
+            return self.search(&SearchRequest {
+                scope: Some(scope),
+                ..req.clone()
+            });
+        }
         let started = Instant::now();
         let limit = if req.limit == 0 { 500 } else { req.limit };
         let indexes = self.indexes_for(req.scope.as_deref());
@@ -416,6 +544,7 @@ impl Engine {
         let qt_guard = self.queries.read().ok();
         let qt = qt_guard.as_ref().and_then(|g| g.as_ref());
         let options = FuzzySearchOptions {
+            max_threads: self.search_settings().threads,
             project_path: Some(&base),
             pagination: PaginationArgs {
                 offset: 0,
@@ -453,7 +582,7 @@ impl Engine {
                     part.hits.push(RawHit::dir(path, score.total));
                 }
             }
-        } else if req.kind == KindFilter::Any {
+        } else if req.kind == KindFilter::Any && !req.files_only {
             let parsed = QueryParser::new(MixedSearchConfig).parse(&query);
             let result = picker.fuzzy_search_mixed(&parsed, qt, options);
             part.total_matched = result.total_matched;
@@ -597,6 +726,13 @@ impl Engine {
 
     /// Content search across the indexes covering `scope`.
     pub fn grep(&self, req: &GrepRequest) -> GrepResponse {
+        if let Some(scope) = req.scope.as_deref().and_then(|s| self.root_spelling(s)) {
+            return self.grep(&GrepRequest {
+                scope: Some(scope),
+                ..req.clone()
+            });
+        }
+        let settings = self.search_settings();
         let started = Instant::now();
         let limit = if req.limit == 0 { 200 } else { req.limit };
         let indexes = self.indexes_for(req.scope.as_deref());
@@ -604,6 +740,26 @@ impl Engine {
             indexing: indexes.iter().any(|r| r.status().scanning),
             ..Default::default()
         };
+        let mut patterns: Vec<String> = req
+            .patterns
+            .iter()
+            .filter(|p| !p.trim().is_empty())
+            .cloned()
+            .collect();
+        if patterns.is_empty() {
+            return response;
+        }
+        // fff matches several patterns as literal text; several regexes
+        // mean "any of these", so join them into one.
+        if req.mode == GrepModeKind::Regex && patterns.len() > 1 {
+            let joined = patterns
+                .iter()
+                .map(|p| format!("(?:{p})"))
+                .collect::<Vec<_>>()
+                .join("|");
+            patterns = vec![joined];
+        }
+        let patterns: Vec<&str> = patterns.iter().map(String::as_str).collect();
         for root in &indexes {
             let Ok(guard) = root.picker.read() else {
                 continue;
@@ -612,32 +768,72 @@ impl Engine {
                 continue;
             };
             let base = picker.base_path().to_path_buf();
-            let mut text = req.pattern.clone();
-            if let Some(rel) = req
+            // A scope inside this root narrows the search with a glob.
+            let scope_glob = req
                 .scope
                 .as_deref()
                 .filter(|s| *s != base.as_path())
                 .and_then(|s| s.strip_prefix(&base).ok())
-            {
-                let rel = rel.to_string_lossy().replace('\\', "/");
-                if !rel.contains(char::is_whitespace) {
-                    text.push_str(&format!(" {rel}/**"));
-                }
-            }
-            let query = fff_search::parse_grep_query(&text);
+                .map(|rel| rel.to_string_lossy().replace('\\', "/"))
+                .filter(|rel| !rel.contains(char::is_whitespace))
+                .map(|rel| format!(" {rel}/**"));
             let options = GrepSearchOptions {
-                mode: if req.regex {
-                    GrepMode::Regex
-                } else {
-                    GrepMode::PlainText
+                mode: match req.mode {
+                    GrepModeKind::Plain => GrepMode::PlainText,
+                    GrepModeKind::Regex => GrepMode::Regex,
+                    GrepModeKind::Fuzzy => GrepMode::Fuzzy,
                 },
                 page_limit: limit,
-                max_matches_per_file: 20,
-                time_budget_ms: 5_000,
-                trim_whitespace: true,
+                max_matches_per_file: if req.per_file == 0 {
+                    limit
+                } else {
+                    req.per_file
+                },
+                max_file_size: settings.max_file_size_mb.max(1) * 1024 * 1024,
+                casing: Some(match settings.case {
+                    SearchCase::Smart => Casing::Smart,
+                    SearchCase::Sensitive => Casing::Sensitive,
+                    SearchCase::Insensitive => Casing::Insensitive,
+                }),
+                time_budget_ms: settings.time_limit_secs * 1000,
+                // fff-search otherwise waits for a first match before
+                // counting, so a search that finds nothing ran to the end.
+                enforce_time_budget: true,
+                trim_whitespace: req.trim,
+                before_context: req.before,
+                after_context: req.after,
                 ..Default::default()
             };
-            let result = picker.grep(&query, &options);
+            let parser = QueryParser::new(GrepConfig);
+            let result = if let [only] = patterns.as_slice() {
+                let text = format!("{only}{}", scope_glob.as_deref().unwrap_or(""));
+                picker.grep(&parser.parse(&text), &options)
+            } else {
+                // Each pattern may carry file constraints; the rest is text.
+                let mut constraints = Vec::new();
+                let mut texts: Vec<String> = Vec::new();
+                let scoped: Vec<String> = patterns
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| match (&scope_glob, i) {
+                        (Some(glob), 0) => format!("{p}{glob}"),
+                        _ => p.to_string(),
+                    })
+                    .collect();
+                for pattern in &scoped {
+                    let query = parser.parse(pattern);
+                    let text = query.grep_text();
+                    constraints.extend(query.constraints);
+                    if !text.is_empty() {
+                        texts.push(text);
+                    }
+                }
+                let refs: Vec<&str> = texts.iter().map(String::as_str).collect();
+                picker.multi_grep(&refs, &constraints, &options)
+            };
+            let limit_reached = settings.time_limit_secs > 0
+                && started.elapsed() >= Duration::from_secs(settings.time_limit_secs);
+            response.stopped |= limit_reached && result.next_file_offset > 0;
             response.files_with_matches += result.files_with_matches;
             response.files_searched += result.total_files_searched;
             for m in &result.matches {
@@ -654,12 +850,15 @@ impl Engine {
                     path,
                     line: m.line_number,
                     column: m.col,
+                    byte_offset: m.byte_offset,
                     text: m.line_content.clone(),
                     ranges: m
                         .match_byte_offsets
                         .iter()
                         .map(|&(a, b)| (a as usize, b as usize))
                         .collect(),
+                    context_before: m.context_before.clone(),
+                    context_after: m.context_after.clone(),
                 });
                 if response.hits.len() >= limit {
                     break;
@@ -671,6 +870,133 @@ impl Engine {
         }
         response.elapsed = started.elapsed();
         response
+    }
+
+    /// Every indexed file, or folder, across the roots; with a query, the
+    /// fuzzy matches in fff's own order. At most `limit` (0 for no limit).
+    pub fn list(&self, dirs: bool, query: Option<&str>, limit: usize) -> Vec<IndexedItem> {
+        let limit = if limit == 0 { usize::MAX } else { limit };
+        let threads = self.search_settings().threads;
+        let mut items = Vec::new();
+        for root in &self.read_indexes().roots {
+            if items.len() >= limit {
+                break;
+            }
+            let Ok(guard) = root.picker.read() else {
+                continue;
+            };
+            let Some(picker) = guard.as_ref() else {
+                continue;
+            };
+            let base = picker.base_path().to_path_buf();
+            let left = limit - items.len();
+            let item = |rel: String, is_dir: bool, size: u64, modified: u64| IndexedItem {
+                path: join_rel(&base, &rel),
+                root: base.clone(),
+                is_dir,
+                size,
+                modified,
+            };
+            match (dirs, query.map(str::trim).filter(|q| !q.is_empty())) {
+                (false, None) => items.extend(
+                    picker
+                        .get_files()
+                        .iter()
+                        .chain(picker.get_overflow_files())
+                        .filter(|f| !f.is_deleted())
+                        .take(left)
+                        .map(|f| item(f.relative_path(picker), false, f.size, f.modified)),
+                ),
+                (true, None) => items.extend(
+                    picker
+                        .get_dirs()
+                        .iter()
+                        .filter(|d| !d.is_deleted())
+                        .map(|d| d.relative_path(picker))
+                        .filter(|rel| !rel.is_empty())
+                        .take(left)
+                        .map(|rel| item(rel, true, 0, 0)),
+                ),
+                (false, Some(q)) => {
+                    let parsed = QueryParser::default().parse(q);
+                    let options = FuzzySearchOptions {
+                        max_threads: threads,
+                        project_path: Some(&base),
+                        pagination: PaginationArgs {
+                            offset: 0,
+                            limit: left.min(100_000),
+                        },
+                        ..Default::default()
+                    };
+                    let result = picker.fuzzy_search(&parsed, None, options);
+                    items.extend(
+                        result
+                            .items
+                            .iter()
+                            .map(|f| item(f.relative_path(picker), false, f.size, f.modified)),
+                    );
+                }
+                (true, Some(q)) => {
+                    let parsed = QueryParser::new(DirSearchConfig).parse(q);
+                    let options = FuzzySearchOptions {
+                        max_threads: threads,
+                        project_path: Some(&base),
+                        pagination: PaginationArgs {
+                            offset: 0,
+                            limit: left.min(100_000),
+                        },
+                        ..Default::default()
+                    };
+                    let result = picker.fuzzy_search_directories(&parsed, options);
+                    items.extend(
+                        result
+                            .items
+                            .iter()
+                            .map(|d| d.relative_path(picker))
+                            .filter(|rel| !rel.is_empty())
+                            .map(|rel| item(rel, true, 0, 0)),
+                    );
+                }
+            }
+        }
+        items.truncate(limit);
+        items
+    }
+
+    /// Subscribe to changes under the roots. `pattern` is a glob relative to
+    /// each root, an absolute path, or empty for everything. Events arrive in
+    /// debounced batches until the returned [`Watch`] is dropped.
+    pub fn watch(&self, pattern: &str, ignore: &[String]) -> anyhow::Result<Watch> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut subscriptions = Vec::new();
+        let mut last_error = None;
+        let pattern = pattern.trim();
+        for root in &self.read_indexes().roots {
+            // An absolute pattern only applies to the root that holds it.
+            if Path::new(pattern).is_absolute() && !Path::new(pattern).starts_with(&root.path) {
+                continue;
+            }
+            let tx = tx.clone();
+            let options = WatchOptions {
+                ignore: ignore.to_vec(),
+            };
+            match root.picker.watch(pattern, options, move |_, events| {
+                let _ = tx.send(events.to_vec());
+            }) {
+                Ok(id) => subscriptions.push((root.picker.clone(), id)),
+                Err(err) => last_error = Some(err),
+            }
+        }
+        if subscriptions.is_empty() {
+            return Err(match last_error {
+                Some(err) => anyhow::anyhow!("cannot watch {pattern:?}: {err}"),
+                None => anyhow::anyhow!("{pattern:?} is outside every search location"),
+            });
+        }
+        Ok(Watch {
+            events: rx,
+            subscriptions,
+        })
     }
 
     /// Record that the user opened `path`, boosting it in later searches.
@@ -1011,6 +1337,7 @@ mod tests {
             roots: vec![dir.clone()],
             db_dir: None,
             watch: false,
+            search: Default::default(),
         });
         assert!(engine.wait_ready(Duration::from_secs(20)));
         let found = engine.glob("**/*.app/Contents/Info.plist", 100);
@@ -1060,6 +1387,7 @@ mod tests {
             roots: vec![dir.clone()],
             db_dir: None,
             watch: false,
+            search: Default::default(),
         });
         assert!(engine.wait_ready(Duration::from_secs(10)));
 
@@ -1100,12 +1428,67 @@ mod tests {
         assert_eq!(res.hits.len(), 1);
 
         let res = engine.grep(&GrepRequest {
-            pattern: "hello".into(),
+            patterns: vec!["hello".into()],
             limit: 10,
             ..Default::default()
         });
         assert_eq!(res.hits.len(), 1);
         assert_eq!(res.hits[0].line, 1);
+
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn search_settings_change_content_search() {
+        let dir = std::env::temp_dir().join(format!("fff-settings-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.txt"), "Hello there\n").unwrap();
+        std::fs::write(dir.join("b.txt"), "hello there\n").unwrap();
+        std::fs::write(dir.join("small.txt"), "needle\n").unwrap();
+        let big = format!("needle\n{}\n", "x".repeat(2 * 1024 * 1024));
+        std::fs::write(dir.join("big.txt"), big).unwrap();
+        let engine = Engine::new(EngineOptions {
+            roots: vec![dir.clone()],
+            db_dir: None,
+            watch: false,
+            search: Default::default(),
+        });
+        assert!(engine.wait_ready(Duration::from_secs(10)));
+        let grep = |text: &str| {
+            let mut names: Vec<String> = engine
+                .grep(&GrepRequest {
+                    patterns: vec![text.into()],
+                    limit: 50,
+                    ..Default::default()
+                })
+                .hits
+                .iter()
+                .map(|h| display_name(&h.path))
+                .collect();
+            names.sort();
+            names
+        };
+        let set = |edit: &dyn Fn(&mut SearchSettings)| {
+            let mut settings = engine.search_settings();
+            edit(&mut settings);
+            engine.set_search_settings(settings);
+        };
+
+        // Smart: lowercase ignores case, a capital letter matches it.
+        assert_eq!(grep("hello"), ["a.txt", "b.txt"]);
+        assert_eq!(grep("Hello"), ["a.txt"]);
+        set(&|s| s.case = SearchCase::Sensitive);
+        assert_eq!(grep("hello"), ["b.txt"]);
+        set(&|s| s.case = SearchCase::Insensitive);
+        assert_eq!(grep("Hello"), ["a.txt", "b.txt"]);
+
+        assert_eq!(grep("needle"), ["big.txt", "small.txt"]);
+        set(&|s| s.max_file_size_mb = 1);
+        assert_eq!(grep("needle"), ["small.txt"]);
+
+        set(&|s| s.max_file_size_mb = 10);
+        assert_eq!(grep("needle"), ["big.txt", "small.txt"]);
 
         std::fs::remove_dir_all(&dir).unwrap();
     }

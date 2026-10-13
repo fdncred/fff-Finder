@@ -4,9 +4,11 @@ use super::toolbar::{TOOLBAR_HEIGHT, pill, pill_button, window_drag_area};
 use super::views::DraggedFiles;
 use super::{Finder, group_digits};
 use crate::actions::*;
+use crate::macos::IconLookup;
 use crate::model::Location;
 use crate::theme::palette;
-use fff_finder_core::places::{Place, PlaceIcon};
+use crate::theme::ui;
+use fff_Finder_core::places::{Place, PlaceIcon};
 use gpui_kit::TestSupportExt as _;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenuItem};
@@ -17,6 +19,44 @@ use gpui_kit::*;
 use std::path::PathBuf;
 
 pub const SIDEBAR_WIDTH: f32 = 212.;
+
+/// Finder's own sidebar icon for a place, in CoreTypes.bundle.
+fn finder_sidebar_icon(icon: PlaceIcon) -> &'static str {
+    match icon {
+        PlaceIcon::Applications => "SidebarApplicationsFolder",
+        PlaceIcon::Desktop => "SidebarDesktopFolder",
+        PlaceIcon::Documents => "SidebarDocumentsFolder",
+        PlaceIcon::Downloads => "SidebarDownloadsFolder",
+        PlaceIcon::Pictures => "SidebarPicturesFolder",
+        PlaceIcon::Music => "SidebarMusicFolder",
+        PlaceIcon::Movies => "SidebarMoviesFolder",
+        PlaceIcon::Home => "SidebarHomeFolder",
+        PlaceIcon::Cloud => "SidebariCloud",
+        PlaceIcon::Drive => "SidebarInternalDisk",
+        PlaceIcon::External => "SidebarExternalDisk",
+        PlaceIcon::Folder => "SidebarGenericFolder",
+    }
+}
+
+/// Finder's sidebar icon tinted with the accent color on macOS, or `fallback`.
+fn glyph(finder_icon: &str, fallback: Icon, color: Hsla) -> AnyElement {
+    let rgba = Rgba::from(color);
+    let byte = |v: f32| (v.clamp(0., 1.) * 255.).round() as u32;
+    let packed = byte(rgba.r) << 24 | byte(rgba.g) << 16 | byte(rgba.b) << 8 | byte(rgba.a);
+    let later = match crate::macos::sidebar_icon(finder_icon, packed) {
+        IconLookup::Ready(path) => {
+            return img(path).size(ui(16.)).flex_shrink_0().into_any_element();
+        }
+        IconLookup::Later => true,
+        IconLookup::Unavailable => false,
+    };
+    div()
+        .relative()
+        .flex_shrink_0()
+        .child(fallback.with_size(ui(16.)).text_color(color))
+        .when(later, |this| this.child(super::views::redraw_soon()))
+        .into_any_element()
+}
 
 pub fn place_icon(icon: PlaceIcon) -> Icon {
     match icon {
@@ -51,11 +91,11 @@ impl Finder {
             .flex_1()
             .min_h_0()
             .overflow_y_scroll()
-            .px(px(8.))
-            .pb(px(8.))
+            .px(ui(8.))
+            .pb(ui(8.))
             .child(self.sidebar_row(
                 "recents",
-                Icon::new(Lucide::Clock),
+                glyph("SidebarRecents", Icon::new(Lucide::Clock), pal.sidebar_icon),
                 "Recents".into(),
                 current == Location::Recents,
                 Location::Recents,
@@ -69,7 +109,11 @@ impl Finder {
             let active = current.folder() == Some(place.path.as_path());
             list = list.child(self.sidebar_row(
                 ("fav", ix),
-                place_icon(place.icon),
+                glyph(
+                    finder_sidebar_icon(place.icon),
+                    place_icon(place.icon),
+                    pal.sidebar_icon,
+                ),
                 place.name.clone().into(),
                 active,
                 Location::Folder(place.path.clone()),
@@ -78,13 +122,24 @@ impl Finder {
             ));
         }
 
+        if !self.smart_folders().is_empty() {
+            list = list.child(section_heading("Smart Folders", pal.sidebar_heading));
+            for ix in 0..self.smart_folders().len() {
+                list = list.child(self.smart_row(ix, cx));
+            }
+        }
+
         list = list.child(section_heading("Locations", pal.sidebar_heading));
         let locations = self.locations.clone();
         for (ix, place) in locations.into_iter().enumerate() {
             let active = current.folder() == Some(place.path.as_path());
             list = list.child(self.sidebar_row(
                 ("loc", ix),
-                place_icon(place.icon),
+                glyph(
+                    finder_sidebar_icon(place.icon),
+                    place_icon(place.icon),
+                    pal.sidebar_icon,
+                ),
                 place.name.clone().into(),
                 active,
                 Location::Folder(place.path.clone()),
@@ -94,16 +149,16 @@ impl Finder {
         }
 
         div()
-            .w(px(SIDEBAR_WIDTH))
+            .w(ui(SIDEBAR_WIDTH))
             .h_full()
             .flex_shrink_0()
-            .p(px(8.))
-            .pr(px(0.))
+            .p(ui(8.))
+            .pr(ui(0.))
             .child(
                 v_flex()
                     .id("sidebar")
                     .size_full()
-                    .rounded(px(14.))
+                    .rounded(ui(14.))
                     .bg(bg)
                     .border_1()
                     .border_color(border)
@@ -121,10 +176,10 @@ impl Finder {
                     }))
                     .child(window_drag_area(
                         h_flex()
-                            .h(px(TOOLBAR_HEIGHT - 8.))
+                            .h(ui(TOOLBAR_HEIGHT - 8.))
                             .flex_shrink_0()
                             .justify_end()
-                            .px(px(6.))
+                            .px(ui(6.))
                             .child(
                                 pill(cx)
                                     .bg(gpui_kit::transparent_black())
@@ -149,7 +204,7 @@ impl Finder {
     fn sidebar_row(
         &self,
         id: impl Into<ElementId>,
-        icon: Icon,
+        icon: AnyElement,
         label: SharedString,
         active: bool,
         target: Location,
@@ -157,19 +212,18 @@ impl Finder {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let theme = cx.theme();
-        let pal = palette(cx);
         let view = cx.entity();
         let row = h_flex()
             .id(id)
-            .h(px(28.))
-            .px(px(8.))
-            .gap(px(8.))
-            .rounded(px(7.))
-            .text_size(px(13.))
+            .h(ui(28.))
+            .px(ui(8.))
+            .gap(ui(8.))
+            .rounded(ui(7.))
+            .text_size(ui(13.))
             .text_color(theme.sidebar_foreground)
             .when(active, |this| this.bg(theme.sidebar_accent))
             .when(!active, |this| this.hover(|s| s.bg(theme.list_hover)))
-            .child(icon.with_size(px(16.)).text_color(pal.sidebar_icon))
+            .child(icon)
             .child(div().flex_1().truncate().child(label))
             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 this.navigate(target.clone(), window, cx);
@@ -220,6 +274,52 @@ impl Finder {
             .into_any_element()
     }
 
+    /// A saved search; active while its search and filter are showing.
+    fn smart_row(&self, ix: usize, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme();
+        let pal = palette(cx);
+        let folder = &self.smart_folders()[ix];
+        let active = self.is_searching()
+            && self.query() == folder.query
+            && self.filter_text() == folder.filter.as_deref().unwrap_or("");
+        let name = folder.name.clone();
+        let view = cx.entity();
+        let row = h_flex()
+            .id(("smart", ix))
+            .h(ui(28.))
+            .px(ui(8.))
+            .gap(ui(8.))
+            .rounded(ui(7.))
+            .text_size(ui(13.))
+            .text_color(theme.sidebar_foreground)
+            .when(active, |this| this.bg(theme.sidebar_accent))
+            .when(!active, |this| this.hover(|s| s.bg(theme.list_hover)))
+            .child(glyph(
+                "SidebarSmartFolder",
+                Icon::new(Lucide::FolderCog),
+                pal.sidebar_icon,
+            ))
+            .child(div().flex_1().truncate().child(name.clone()))
+            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                this.open_smart_folder(ix, window, cx)
+            }))
+            .test_support();
+        div()
+            .id(("smart-menu", ix))
+            .child(row)
+            .context_menu(move |menu, window, _| {
+                let name = name.clone();
+                menu.item(
+                    PopupMenuItem::new("Remove from Sidebar").on_click(window.listener_for(
+                        &view,
+                        move |this: &mut Finder, _: &ClickEvent, _, cx| {
+                            this.remove_smart_folder(&name, cx)
+                        },
+                    )),
+                )
+            })
+    }
+
     fn render_index_footer(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
         let muted = theme.muted_foreground;
@@ -230,7 +330,7 @@ impl Finder {
             ),
             None => (
                 Icon::new(Lucide::ScanSearch)
-                    .with_size(px(14.))
+                    .with_size(ui(14.))
                     .text_color(muted)
                     .into_any_element(),
                 format!("{} files indexed", group_digits(self.indexed_files())),
@@ -238,25 +338,25 @@ impl Finder {
         };
         h_flex()
             .id("index-footer")
-            .h(px(34.))
+            .h(ui(34.))
             .flex_shrink_0()
-            .px(px(14.))
-            .gap(px(8.))
+            .px(ui(14.))
+            .gap(ui(8.))
             .border_t_1()
             .border_color(theme.sidebar_border)
-            .text_size(px(11.))
+            .text_size(ui(11.))
             .text_color(muted)
             .child(icon)
             .child(div().flex_1().truncate().child(text))
             .child(
                 div()
                     .id("index-settings")
-                    .p(px(3.))
-                    .rounded(px(5.))
+                    .p(ui(3.))
+                    .rounded(ui(5.))
                     .hover(|s| s.bg(theme.list_hover))
                     .child(
                         Icon::new(IconName::Settings)
-                            .with_size(px(14.))
+                            .with_size(ui(14.))
                             .text_color(muted),
                     )
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
@@ -269,10 +369,10 @@ impl Finder {
 
 fn section_heading(label: &'static str, color: Hsla) -> impl IntoElement {
     div()
-        .pt(px(14.))
-        .pb(px(4.))
-        .px(px(8.))
-        .text_size(px(11.))
+        .pt(ui(14.))
+        .pb(ui(4.))
+        .px(ui(8.))
+        .text_size(ui(11.))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(color)
         .child(label)

@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/fff-finder-core", "crates/nu_plugin_fff"]
+members = [".", "crates/fff-Finder-core"]
 resolver = "2"
 
 [workspace.package]
@@ -8,7 +8,7 @@ edition = "2024"
 authors = ["Darren Schroeder"]
 
 [workspace.dependencies]
-fff-finder-core = { path = "crates/fff-finder-core" }
+fff-Finder-core = { path = "crates/fff-Finder-core" }
 fff-search = "0.11.0"
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
@@ -17,22 +17,22 @@ dirs = "6"
 log = "0.4"
 
 [package]
-name = "fffFinder"
+name = "fff-Finder"
 description = "A fast, cross-platform Finder-style file search app built on fff-search and GPUI Kit"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 
 [lib]
-name = "fff_finder_app"
+name = "fff_Finder"
 path = "src/lib.rs"
 
 [[bin]]
-name = "fffFinder"
+name = "fff-Finder"
 path = "src/main.rs"
 
 [dependencies]
-fff-finder-core.workspace = true
+fff-Finder-core.workspace = true
 gpui-kit = "0.7.3"
 anyhow.workspace = true
 serde.workspace = true
@@ -40,6 +40,17 @@ serde_json.workspace = true
 dirs.workspace = true
 log.workspace = true
 trash = "5"
+# Hands control-socket requests to the UI thread.
+async-channel = "2"
+# Colors file names the way Nushell's `ls` does.
+lscolors = { version = "0.21", default-features = false }
+
+# Finder's own colors and icons, read from AppKit at run time.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-app-kit = "0.3"
+block2 = "0.6"
 
 [dev-dependencies]
 gpui-kit = { version = "0.7.3", features = ["test-support"] }

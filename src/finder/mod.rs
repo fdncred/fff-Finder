@@ -2,7 +2,10 @@
 //! Rendering lives in the submodules.
 
 mod bars;
+mod batch_rename;
 mod dialogs;
+mod editor;
+mod filter;
 mod menus;
 mod nu_panel;
 mod preview;
@@ -13,9 +16,10 @@ mod views;
 use crate::actions::*;
 use crate::model::{History, Location, Selection};
 use crate::nushell::{self, NuRun};
-use fff_finder_core::places::{self, Place};
-use fff_finder_core::terminals::{self, CUSTOM, Terminal, TerminalSetting};
-use fff_finder_core::{
+use crate::theme::ui;
+use fff_Finder_core::places::{self, Place};
+use fff_Finder_core::terminals::{self, CUSTOM, Terminal, TerminalSetting};
+use fff_Finder_core::{
     Config, Engine, FileEntry, GrepRequest, KindFilter, RootStatus, SearchRequest, SortKey,
     SortOrder, ViewMode, format, listing,
 };
@@ -55,6 +59,13 @@ pub struct PickerOptions {
     pub multiple: bool,
 }
 
+/// What a terminal opened by fff-Finder runs.
+#[derive(Debug, Clone)]
+pub(super) enum InTerminal {
+    Nu,
+    Command { program: PathBuf, args: Vec<String> },
+}
+
 /// One displayed item with its labels precomputed for fast rendering.
 #[derive(Clone)]
 pub struct Row {
@@ -66,6 +77,8 @@ pub struct Row {
     /// Parent folder (search results) or the matching line (content search).
     pub detail: SharedString,
     pub highlights: Vec<(usize, usize)>,
+    /// How `LS_COLORS` draws the name, when that option is on.
+    pub name_style: Option<crate::nu_env::NameStyle>,
 }
 
 impl Row {
@@ -86,6 +99,7 @@ impl Row {
             kind: entry.kind_label().into(),
             detail: detail.into(),
             highlights,
+            name_style: None,
             entry,
         }
     }
@@ -117,6 +131,8 @@ pub struct SearchStats {
     pub elapsed: Duration,
     pub total_matched: usize,
     pub indexing: bool,
+    /// A content search hit the time limit before searching every file.
+    pub stopped: bool,
 }
 
 pub struct Finder {
@@ -158,12 +174,46 @@ pub struct Finder {
     preview_tasks: HashMap<PathBuf, Task<()>>,
     quick_look_open: bool,
     quick_look_focus: FocusHandle,
+    /// Type-to-select: the letters typed so far and when the last arrived.
+    type_select: String,
+    type_select_at: Option<std::time::Instant>,
     /// Where an item was last right-clicked. Context menus don't stop
     /// propagation, so the empty-space menu around the item checks this and
     /// stays closed for the same click.
     item_menu_at: Option<Point<Pixels>>,
 
     nu_open: bool,
+    /// The open "Rename N Items" dialog's state.
+    batch: Option<batch_rename::BatchRename>,
+    /// The Nushell filter bar (see filter.rs).
+    filter_input: Entity<InputState>,
+    filter_open: bool,
+    /// The filter in effect; empty for none.
+    filter: String,
+    filter_task: Task<()>,
+    filter_debounce: Task<()>,
+    /// Paths the filter kept, for the rows in `filter_source`.
+    filter_keep: Option<HashSet<PathBuf>>,
+    filter_source: Option<Vec<PathBuf>>,
+    filter_error: Option<String>,
+    filtering: bool,
+    /// Rows before the filter, for the status bar.
+    unfiltered_len: usize,
+    /// The result cap the current search ran with.
+    search_limit: usize,
+    /// The user's Nushell environment, when "use Nushell's colors and
+    /// editor" is on (see nu_env.rs).
+    nu_env: Option<Arc<crate::nu_env::NuEnv>>,
+    ls_colors: Option<Arc<lscolors::LsColors>>,
+    nu_env_error: Option<String>,
+    nu_env_loading: bool,
+    nu_env_task: Task<()>,
+    /// Commands from the user's actions.nu, for the "Nushell Actions" menus.
+    user_actions: Vec<crate::user_actions::UserAction>,
+    user_actions_error: Option<String>,
+    /// When actions.nu was last read, to reload it after edits.
+    user_actions_stamp: Option<SystemTime>,
+    user_actions_task: Task<()>,
     /// Installed terminals for "Open Nushell Here"; `None` until detected.
     terminals: Option<Vec<Terminal>>,
     terminals_task: Task<()>,
@@ -178,6 +228,8 @@ pub struct Finder {
     status_task: Task<()>,
     /// Applies a change of search roots; a newer change replaces it.
     roots_task: Task<()>,
+    /// Applies Settings › Search engine; a newer change replaces it.
+    search_settings_task: Task<()>,
     watch_task: Task<()>,
     save_task: Task<()>,
 
@@ -205,6 +257,7 @@ impl Finder {
     ) -> Self {
         let engine = cx.global::<AppState>().engine.clone();
         let config = Config::load();
+        crate::theme::set_ui_scale(config.ui_scale(), cx);
         let search_input = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder("Search")
@@ -214,6 +267,11 @@ impl Finder {
             InputState::new(window, cx).placeholder(
                 "Nushell pipeline over the selection, e.g.  where size > 1mb | sort-by modified",
             )
+        });
+        let filter_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("size > 10mb and modified > ((date now) - 1wk)")
+                .clean_on_escape()
         });
         let icon_slider = cx.new(|_| {
             SliderState::new()
@@ -229,13 +287,14 @@ impl Finder {
                 }
             }),
             cx.subscribe_in(&search_input, window, Self::on_search_event),
+            cx.subscribe_in(&filter_input, window, Self::on_filter_event),
             cx.subscribe_in(&nu_input, window, |this, _, event, window, cx| {
                 if let InputEvent::PressEnter { .. } = event {
                     this.run_nu_pipeline(window, cx);
                 }
             }),
             cx.observe_window_appearance(window, |this, window, cx| {
-                if this.config.appearance == fff_finder_core::Appearance::System {
+                if this.config.appearance == fff_Finder_core::Appearance::System {
                     crate::theme::apply(this.config.appearance, Some(window), cx);
                 }
             }),
@@ -283,15 +342,38 @@ impl Finder {
             columns_scroll: ScrollHandle::new(),
             columns: Vec::new(),
             active_column: 0,
-            content_height: px(400.),
+            content_height: ui(400.),
             previews: HashMap::new(),
             preview_tasks: HashMap::new(),
             quick_look_open: false,
             quick_look_focus: cx.focus_handle(),
             item_menu_at: None,
+            type_select: String::new(),
+            type_select_at: None,
             nu_open: false,
+            batch: None,
+            filter_input,
+            filter_open: false,
+            filter: String::new(),
+            filter_task: Task::ready(()),
+            filter_debounce: Task::ready(()),
+            filter_keep: None,
+            filter_source: None,
+            filter_error: None,
+            filtering: false,
+            unfiltered_len: 0,
+            search_limit: 0,
             terminals: None,
             terminals_task: Task::ready(()),
+            nu_env: None,
+            ls_colors: None,
+            nu_env_error: None,
+            nu_env_loading: false,
+            nu_env_task: Task::ready(()),
+            user_actions: Vec::new(),
+            user_actions_error: None,
+            user_actions_stamp: None,
+            user_actions_task: Task::ready(()),
             nu_input,
             nu_result: None,
             nu_running: false,
@@ -301,6 +383,7 @@ impl Finder {
             index_status: Vec::new(),
             status_task: Task::ready(()),
             roots_task: Task::ready(()),
+            search_settings_task: Task::ready(()),
             watch_task: Task::ready(()),
             save_task: Task::ready(()),
             icon_slider,
@@ -314,6 +397,10 @@ impl Finder {
         this.poll_index_status(cx);
         this.watch_folder(cx);
         this.detect_terminals(cx);
+        this.load_user_actions(cx);
+        if this.config.use_nu_environment {
+            this.load_nu_env(cx);
+        }
         if let Some(query) = query.filter(|q| !q.trim().is_empty()) {
             this.search_input
                 .update(cx, |s, cx| s.set_value(query.clone(), window, cx));
@@ -394,6 +481,86 @@ impl Finder {
 
     pub fn is_searching(&self) -> bool {
         !self.query.is_empty()
+    }
+
+    /// Items come from many folders (a search, Recents, sent results), so
+    /// the list shows where each one is.
+    pub fn shows_parent_column(&self) -> bool {
+        self.is_searching() || self.current_folder().is_none()
+    }
+
+    /// Show `paths` as a results view; returns how many exist and which
+    /// don't.
+    pub fn show_results(
+        &mut self,
+        title: String,
+        paths: Vec<PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> (usize, Vec<PathBuf>) {
+        let (found, missing): (Vec<PathBuf>, Vec<PathBuf>) =
+            paths.into_iter().partition(|p| p.exists());
+        let shown = found.len();
+        if shown > 0 {
+            self.navigate(
+                Location::Results {
+                    title,
+                    paths: Arc::new(found),
+                },
+                window,
+                cx,
+            );
+        }
+        (shown, missing)
+    }
+
+    /// Go to `path` (a folder, or a file's folder with the file selected)
+    /// and search `query`, as `fff gui` and a second launch ask.
+    pub fn open_request(
+        &mut self,
+        path: Option<&Path>,
+        query: Option<&str>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(path) = path {
+            if path.is_dir() {
+                self.navigate(Location::Folder(path.to_path_buf()), window, cx);
+            } else if path.exists() {
+                self.reveal_in_place(path, window, cx);
+            }
+        }
+        if let Some(query) = query.filter(|q| !q.trim().is_empty()) {
+            let query = query.to_string();
+            self.search_input
+                .update(cx, |s, cx| s.set_value(query.clone(), window, cx));
+            self.set_query(query, true, cx);
+        }
+    }
+
+    /// What `/v1/selection` reports: where the window is and its selected
+    /// (or, with `all`, shown) items.
+    pub fn selection_json(&self, all: bool) -> serde_json::Value {
+        let location = if self.is_searching() {
+            "search"
+        } else {
+            match self.history.current() {
+                Location::Folder(_) => "folder",
+                Location::Recents => "recents",
+                Location::Results { .. } => "results",
+            }
+        };
+        let items: Vec<FileEntry> = if all {
+            self.rows.iter().map(|r| r.entry.clone()).collect()
+        } else {
+            self.selected_entries()
+        };
+        serde_json::json!({
+            "location": location,
+            "folder": self.current_folder(),
+            "query": self.is_searching().then_some(&self.query),
+            "items": items.iter().map(crate::server::item_json).collect::<Vec<_>>(),
+        })
     }
 
     /// Search results always use the list in column mode, like Finder.
@@ -520,6 +687,10 @@ impl Finder {
                             engine.wait_ready(Duration::from_secs(60));
                             Ok((engine.recents(500), None))
                         }
+                        Location::Results { paths, .. } => Ok((
+                            paths.iter().filter_map(FileEntry::from_path).collect(),
+                            None,
+                        )),
                     }
                 })
                 .await;
@@ -553,6 +724,12 @@ impl Finder {
 
     /// Reload quietly when the folder changed on disk.
     fn check_for_changes(&mut self, cx: &mut Context<Self>) {
+        let actions = crate::user_actions::actions_path();
+        if self.user_actions_stamp.is_some()
+            && crate::user_actions::modified(&actions) != self.user_actions_stamp
+        {
+            self.load_user_actions(cx);
+        }
         if self.loading {
             return;
         }
@@ -601,10 +778,20 @@ impl Finder {
                 .collect()
         };
         let order = self.sort_order();
-        let recents_default =
-            matches!(self.history.current(), Location::Recents) && order == SortOrder::default();
-        if order.key != SortKey::Relevance && !recents_default {
+        // Recents and sent results keep their own order until a sort is chosen.
+        let keep_order = matches!(
+            self.history.current(),
+            Location::Recents | Location::Results { .. }
+        ) && order == SortOrder::default();
+        if order.key != SortKey::Relevance && !keep_order {
             rows.sort_by(|a, b| listing::compare(&a.entry, &b.entry, order));
+        }
+        self.unfiltered_len = rows.len();
+        self.apply_filter_to(&mut rows, cx);
+        if let Some(colors) = &self.ls_colors {
+            for row in &mut rows {
+                row.name_style = crate::nu_env::name_style(colors, &row.entry);
+            }
         }
         let new: Vec<PathBuf> = rows.iter().map(|r| r.entry.path.clone()).collect();
         self.selection.remap(&old, &new);
@@ -708,12 +895,19 @@ impl Finder {
         };
         let query = self.query.clone();
         let contents = self.search_contents;
+        // A filter applies after the search, so fetch more for it to work on.
+        self.search_limit = if self.filter.is_empty() {
+            self.config.result_limit
+        } else {
+            filter::FILTER_SEARCH_LIMIT.max(self.config.result_limit)
+        };
         let request = SearchRequest {
             query: query.clone(),
             scope: scope.clone(),
             kind: self.config.kind_filter,
-            limit: self.config.result_limit,
+            limit: self.search_limit,
             show_hidden: self.config.show_hidden,
+            files_only: false,
         };
         self.searching = true;
         cx.notify();
@@ -738,6 +932,7 @@ impl Finder {
                             elapsed: response.elapsed,
                             total_matched: response.total_matched,
                             indexing: response.indexing,
+                            stopped: false,
                         };
                         (rows, stats)
                     }
@@ -857,6 +1052,41 @@ impl Finder {
                 .await;
             this.update(cx, |this, cx| this.poll_index_status(cx)).ok();
         });
+        cx.notify();
+    }
+
+    /// Change fff-search's options (Settings › Search Engine). Options that
+    /// shape the index rebuild it, off the UI thread; the search reruns.
+    pub fn update_search_settings(
+        &mut self,
+        edit: impl FnOnce(&mut fff_Finder_core::SearchSettings),
+        cx: &mut Context<Self>,
+    ) {
+        edit(&mut self.config.search);
+        self.schedule_save(cx);
+        let engine = self.engine.clone();
+        let settings = self.config.search.clone();
+        self.search_settings_task = cx.spawn(async move |this, cx| {
+            cx.background_spawn(async move { engine.set_search_settings(settings) })
+                .await;
+            this.update(cx, |this, cx| {
+                this.poll_index_status(cx);
+                if this.is_searching() {
+                    this.run_search(false, cx);
+                }
+            })
+            .ok();
+        });
+        cx.notify();
+    }
+
+    /// The most results a search shows.
+    pub fn set_result_limit(&mut self, limit: usize, cx: &mut Context<Self>) {
+        self.config.result_limit = limit.max(1);
+        self.schedule_save(cx);
+        if self.is_searching() {
+            self.run_search(false, cx);
+        }
         cx.notify();
     }
 
@@ -996,6 +1226,53 @@ impl Finder {
         }
     }
 
+    /// Finder's type-to-select: letters typed within a second of each other
+    /// form a prefix, and the first item starting with it is selected (or
+    /// the next one after it, alphabetically, when none does).
+    pub fn type_to_select(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let now = cx.background_executor().now();
+        if self
+            .type_select_at
+            .is_none_or(|at| now.saturating_duration_since(at) > Duration::from_secs(1))
+        {
+            self.type_select.clear();
+        }
+        self.type_select.push_str(text);
+        self.type_select_at = Some(now);
+        let prefix = self.type_select.to_lowercase();
+        let pick = |names: Vec<String>| -> Option<usize> {
+            let lower: Vec<String> = names.iter().map(|n| n.to_lowercase()).collect();
+            lower
+                .iter()
+                .position(|n| n.starts_with(&prefix))
+                .or_else(|| {
+                    lower
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, n)| n.as_str() > prefix.as_str())
+                        .min_by(|a, b| a.1.cmp(b.1))
+                        .map(|(ix, _)| ix)
+                })
+                .or_else(|| names.len().checked_sub(1))
+        };
+        if self.effective_view() == ViewMode::Columns {
+            let col = self.active_column;
+            let Some(pane) = self.columns.get(col) else {
+                return;
+            };
+            if let Some(ix) = pick(pane.entries.iter().map(|e| e.name.clone()).collect()) {
+                self.select_in_column(col, ix, window, cx);
+            }
+            return;
+        }
+        if let Some(ix) = pick(self.rows.iter().map(|r| r.entry.name.clone()).collect()) {
+            self.selection.select_only(ix);
+            self.scroll_to(ix);
+            self.selection_changed(cx);
+            cx.notify();
+        }
+    }
+
     fn select_all(&mut self, _: &SelectAll, _: &mut Window, cx: &mut Context<Self>) {
         self.selection.select_all(self.rows.len());
         cx.notify();
@@ -1047,7 +1324,8 @@ impl Finder {
         self.open_entries(entries, window, cx);
     }
 
-    /// Folders navigate; files and apps open with the system default.
+    /// Folders navigate; files and apps open with the system default (or an
+    /// editor, for text files no app claims).
     pub fn open_entries(
         &mut self,
         entries: Vec<FileEntry>,
@@ -1059,9 +1337,7 @@ impl Finder {
             self.navigate(Location::Folder(folder.path.clone()), window, cx);
             return;
         }
-        for entry in &entries {
-            crate::system::open(&entry.path, cx);
-        }
+        self.open_files(entries.iter().map(|e| e.path.clone()).collect(), window, cx);
         let engine = self.engine.clone();
         let paths: Vec<PathBuf> = entries.into_iter().map(|e| e.path).collect();
         cx.background_spawn(async move {
@@ -1182,13 +1458,60 @@ impl Finder {
         cx.notify();
     }
 
+    /// Change the preview text size; `None` goes back to the default.
+    pub fn set_preview_font_size(&mut self, size: Option<f32>, cx: &mut Context<Self>) {
+        use fff_Finder_core::config::{DEFAULT_PREVIEW_FONT_SIZE, FONT_SIZE_RANGE, in_range};
+        let size = size.unwrap_or(DEFAULT_PREVIEW_FONT_SIZE);
+        self.config.preview_font_size = in_range(size, FONT_SIZE_RANGE, DEFAULT_PREVIEW_FONT_SIZE);
+        self.schedule_save(cx);
+        cx.notify();
+    }
+
+    /// Change the Nushell panel's text size; `None` goes back to the default.
+    pub fn set_nu_font_size(&mut self, size: Option<f32>, cx: &mut Context<Self>) {
+        use fff_Finder_core::config::{DEFAULT_NU_FONT_SIZE, FONT_SIZE_RANGE, in_range};
+        let size = size.unwrap_or(DEFAULT_NU_FONT_SIZE);
+        self.config.nu_font_size = in_range(size, FONT_SIZE_RANGE, DEFAULT_NU_FONT_SIZE);
+        self.schedule_save(cx);
+        cx.notify();
+    }
+
+    /// Scale all text and controls (Settings › Text size); `None` resets it.
+    pub fn set_ui_scale(&mut self, scale: Option<f32>, cx: &mut Context<Self>) {
+        use fff_Finder_core::config::{UI_SCALE_RANGE, in_range};
+        // Whole tenths, so steps land on 90%, 100%, 110%, …
+        let scale = (in_range(scale.unwrap_or(1.0), UI_SCALE_RANGE, 1.0) * 10.).round() / 10.;
+        self.config.ui_scale = scale;
+        crate::theme::set_ui_scale(scale, cx);
+        self.schedule_save(cx);
+        cx.notify();
+    }
+
+    /// Scale everything 10% bigger (`steps` > 0) or smaller.
+    pub fn step_ui_scale(&mut self, steps: f32, cx: &mut Context<Self>) {
+        let scale = self.config.ui_scale() + steps * 0.1;
+        self.set_ui_scale(Some(scale), cx);
+    }
+
+    /// Make the Nushell panel's text one point bigger (`steps` > 0) or smaller.
+    pub fn step_nu_font_size(&mut self, steps: f32, cx: &mut Context<Self>) {
+        let size = self.config.nu_font_size() + steps;
+        self.set_nu_font_size(Some(size), cx);
+    }
+
+    /// Make the preview text one point bigger (`steps` > 0) or smaller.
+    pub fn step_preview_font_size(&mut self, steps: f32, cx: &mut Context<Self>) {
+        let size = self.config.preview_font_size() + steps;
+        self.set_preview_font_size(Some(size), cx);
+    }
+
     fn toggle_appearance(
         &mut self,
         _: &ToggleAppearance,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        use fff_finder_core::Appearance;
+        use fff_Finder_core::Appearance;
         self.config.appearance = if cx.theme().is_dark() {
             Appearance::Light
         } else {
@@ -1200,7 +1523,7 @@ impl Finder {
 
     pub fn set_appearance(
         &mut self,
-        appearance: fff_finder_core::Appearance,
+        appearance: fff_Finder_core::Appearance,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -1304,8 +1627,20 @@ impl Finder {
     }
 
     pub fn open_terminal_at(&mut self, dir: &Path, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_in_terminal(dir, InTerminal::Nu, window, cx);
+    }
+
+    /// Open the chosen terminal in `dir`, running `nu` or another program.
+    pub(super) fn open_in_terminal(
+        &mut self,
+        dir: &Path,
+        job: InTerminal,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         use gpui_kit::component::notification::NotificationType;
-        let Some(nu) = cx.global::<AppState>().nu.clone() else {
+        let nu = cx.global::<AppState>().nu.clone();
+        if matches!(job, InTerminal::Nu) && nu.is_none() {
             window.push_notification(
                 (
                     NotificationType::Warning,
@@ -1314,7 +1649,7 @@ impl Finder {
                 cx,
             );
             return;
-        };
+        }
         let Some(found) = self.terminals.clone() else {
             // Still detecting: finish that, then open.
             let engine = self.engine.clone();
@@ -1325,23 +1660,37 @@ impl Finder {
                     .await;
                 this.update_in(cx, |this, window, cx| {
                     this.terminals = Some(found);
-                    this.open_terminal_at(&dir, window, cx);
+                    this.open_in_terminal(&dir, job, window, cx);
                 })
                 .ok();
             });
             return;
         };
         let setting = self.config.terminal_setting();
+        let nu = nu.unwrap_or_else(|| PathBuf::from("nu"));
         let custom = setting
             .command
             .as_deref()
             .filter(|_| setting.app.as_deref() == Some(CUSTOM))
-            .and_then(|command| terminals::custom_plan(command, &nu, dir));
+            .and_then(|command| match &job {
+                InTerminal::Nu => terminals::custom_plan(command, &nu, dir),
+                InTerminal::Command { program, args } => {
+                    terminals::custom_plan_command(command, program, args, dir)
+                }
+            });
         let env_terminal = std::env::var("TERMINAL").ok();
         let (plan, warning) = match custom {
             Some(plan) => (plan, None),
             None => match terminals::resolve(&found, &setting, env_terminal.as_deref()) {
-                Some((terminal, warning)) => (terminal.plan(&nu, dir), warning),
+                Some((terminal, warning)) => (
+                    match &job {
+                        InTerminal::Nu => terminal.plan(&nu, dir),
+                        InTerminal::Command { program, args } => {
+                            terminal.plan_command(program, args, dir)
+                        }
+                    },
+                    warning,
+                ),
                 None => {
                     window.push_notification(
                         (
@@ -1436,6 +1785,64 @@ impl Finder {
         cx.notify();
     }
 
+    /// Read actions.nu (writing the starters first if it's missing).
+    pub fn load_user_actions(&mut self, cx: &mut Context<Self>) {
+        let Some(nu) = cx.global::<AppState>().nu.clone() else {
+            return;
+        };
+        let path = crate::user_actions::actions_path();
+        self.user_actions_task = cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_spawn(async move {
+                    crate::user_actions::ensure_starters(&path).map_err(|e| e.to_string())?;
+                    let stamp = crate::user_actions::modified(&path);
+                    crate::user_actions::discover(&nu, &path).map(|found| (found, stamp))
+                })
+                .await;
+            this.update(cx, |this, cx| {
+                match result {
+                    Ok((found, stamp)) => {
+                        this.user_actions = found;
+                        this.user_actions_error = None;
+                        this.user_actions_stamp = stamp;
+                    }
+                    Err(err) => {
+                        this.user_actions_error = Some(err);
+                        this.user_actions_stamp =
+                            crate::user_actions::modified(&crate::user_actions::actions_path());
+                    }
+                }
+                cx.notify();
+            })
+            .ok();
+        });
+    }
+
+    pub fn user_actions(&self) -> &[crate::user_actions::UserAction] {
+        &self.user_actions
+    }
+
+    pub fn user_actions_error(&self) -> Option<&str> {
+        self.user_actions_error.as_deref()
+    }
+
+    /// Run an action with the selection (or everything shown) as `$in`; its
+    /// result shows in the Nushell panel.
+    pub fn run_user_action(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(action) = self.user_actions.get(ix).cloned() else {
+            return;
+        };
+        let text = crate::user_actions::invocation(&crate::user_actions::actions_path(), &action);
+        self.open_nu_with(&text, window, cx);
+    }
+
+    /// Open actions.nu to edit it, in the user's editor when that's on.
+    pub fn edit_user_actions(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let path = crate::user_actions::actions_path();
+        let _ = crate::user_actions::ensure_starters(&path);
+        self.open_in_editor(vec![path], window, cx);
+    }
+
     /// Open the pipeline panel with `pipeline` filled in and run it.
     pub fn open_nu_with(&mut self, pipeline: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.nu_open = true;
@@ -1443,6 +1850,24 @@ impl Finder {
         self.nu_input
             .update(cx, |s, cx| s.set_value(pipeline, window, cx));
         self.run_nu_pipeline(window, cx);
+    }
+
+    /// Empty the pipeline and drop its result (or stop waiting for one), so
+    /// the panel shows its examples again.
+    pub fn clear_nu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.nu_task = Task::ready(());
+        self.nu_running = false;
+        self.nu_result = None;
+        self.nu_input.update(cx, |s, cx| {
+            s.set_value("", window, cx);
+            s.focus(window, cx);
+        });
+        cx.notify();
+    }
+
+    /// The pipeline in the Nushell panel's field.
+    pub fn nu_pipeline(&self, cx: &App) -> String {
+        self.nu_input.read(cx).value().to_string()
     }
 
     pub fn nu_busy(&self) -> bool {
@@ -1530,7 +1955,10 @@ impl Finder {
     }
 
     fn rename(&mut self, _: &Rename, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(entry) = self.primary_entry() {
+        let selected = self.selected_entries();
+        if selected.len() > 1 {
+            self.open_batch_rename(selected, window, cx);
+        } else if let Some(entry) = self.primary_entry() {
             self.open_rename_dialog(entry.path, window, cx);
         }
     }
@@ -1714,10 +2142,12 @@ fn content_search(
     limit: usize,
 ) -> (Vec<Row>, SearchStats) {
     let response = engine.grep(&GrepRequest {
-        pattern: query.to_string(),
+        patterns: vec![query.to_string()],
         scope,
-        regex: false,
         limit: limit.max(50) * 4,
+        per_file: 20,
+        trim: true,
+        ..Default::default()
     });
     let mut seen = HashSet::new();
     let mut rows = Vec::new();
@@ -1737,6 +2167,7 @@ fn content_search(
         elapsed: response.elapsed,
         total_matched: response.files_with_matches,
         indexing: response.indexing,
+        stopped: response.stopped,
     };
     (rows, stats)
 }
@@ -1759,7 +2190,7 @@ impl Render for Finder {
             .size_full()
             .bg(background)
             .text_color(foreground)
-            .text_size(px(13.))
+            .text_size(ui(13.))
             .font_family(font)
             // Open, Quick Look and Select All are bound to keys only inside the
             // file views, but menus can send them from anywhere in the window.
@@ -1789,6 +2220,15 @@ impl Render for Finder {
             .on_action(cx.listener(Self::show_settings))
             .on_action(cx.listener(Self::go_to_folder))
             .on_action(cx.listener(Self::search_help))
+            .on_action(cx.listener(Self::toggle_filter))
+            .on_action(cx.listener(|this, _: &OpenInEditor, window, cx| {
+                let paths = this
+                    .selected_entries()
+                    .into_iter()
+                    .map(|e| e.path)
+                    .collect();
+                this.open_in_editor(paths, window, cx);
+            }))
             .on_action(cx.listener(|this, _: &CloseWindow, window, cx| {
                 if this.picker.is_some() {
                     crate::picker::cancel();
@@ -1827,6 +2267,9 @@ impl Render for Finder {
                             .child(self.render_toolbar(window, cx))
                             .when(self.is_searching(), |this| {
                                 this.child(self.render_scope_bar(window, cx))
+                            })
+                            .when(self.filter_bar_open(), |this| {
+                                this.child(self.render_filter_bar(cx))
                             })
                             .child(self.render_content(window, cx))
                             .when(self.nu_open, |this| {
@@ -1933,6 +2376,21 @@ impl Finder {
                     cx.notify();
                 }
             }))
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                let keys = &event.keystroke;
+                let m = keys.modifiers;
+                if m.control || m.platform || m.alt || m.function {
+                    return;
+                }
+                if let Some(text) = keys.key_char.as_deref()
+                    && !text.is_empty()
+                    && !text.chars().any(char::is_control)
+                    && (text != " " || !this.type_select.is_empty())
+                {
+                    this.type_to_select(text, window, cx);
+                    cx.stop_propagation();
+                }
+            }))
             .on_drop(cx.listener(|this, paths: &ExternalPaths, window, cx| {
                 if let Some(path) = paths.paths().first() {
                     if path.is_dir() {
@@ -1957,16 +2415,16 @@ impl Finder {
             .gap_1()
             .child(
                 div()
-                    .text_size(px(17.))
+                    .text_size(ui(17.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(theme.muted_foreground)
                     .child(title.to_string()),
             )
             .child(
                 div()
-                    .max_w(px(420.))
+                    .max_w(ui(420.))
                     .text_center()
-                    .text_size(px(12.))
+                    .text_size(ui(12.))
                     .text_color(theme.muted_foreground)
                     .child(detail.to_string()),
             )

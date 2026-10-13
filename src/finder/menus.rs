@@ -2,6 +2,8 @@
 
 use super::Finder;
 use crate::actions::*;
+use crate::theme::ui;
+use gpui_kit::TestSupportExt as _;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::IconName;
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
@@ -17,6 +19,76 @@ pub fn reveal_label() -> &'static str {
     } else {
         "Show in File Manager"
     }
+}
+
+/// The "Nushell Actions" submenu: the commands in actions.nu, drawn at the
+/// Nushell text size from Settings.
+pub fn actions_submenu(
+    view: &Entity<Finder>,
+    menu: PopupMenu,
+    window: &mut Window,
+    cx: &mut Context<PopupMenu>,
+) -> PopupMenu {
+    let view = view.clone();
+    menu.submenu(
+        "Nushell Actions",
+        window,
+        cx,
+        move |mut menu, window, cx| {
+            let finder = view.read(cx);
+            let actions = finder.user_actions().to_vec();
+            let size = finder.config.nu_font_size();
+            if let Some(err) = finder.user_actions_error() {
+                let first = err.lines().find(|l| !l.trim().is_empty()).unwrap_or(err);
+                let label = format!("actions.nu has an error: {}", first.trim());
+                menu = menu.item(nu_item("nu-actions-error", label, size).disabled(true));
+            }
+            for (ix, action) in actions.iter().enumerate() {
+                menu = menu.item(
+                    nu_item(("nu-action", ix), action.label.clone(), size)
+                        .icon(Lucide::Zap)
+                        .on_click(window.listener_for(
+                            &view,
+                            move |this: &mut Finder, _: &ClickEvent, window, cx| {
+                                this.run_user_action(ix, window, cx)
+                            },
+                        )),
+                );
+            }
+            menu.separator()
+                .item(
+                    nu_item("nu-actions-edit", "Edit Actions…", size)
+                        .icon(Lucide::SquarePen)
+                        .on_click(window.listener_for(
+                            &view,
+                            |this: &mut Finder, _: &ClickEvent, window, cx| {
+                                this.edit_user_actions(window, cx)
+                            },
+                        )),
+                )
+                .item(
+                    nu_item("nu-actions-reload", "Reload Actions", size).on_click(
+                        window.listener_for(&view, |this: &mut Finder, _: &ClickEvent, _, cx| {
+                            this.load_user_actions(cx)
+                        }),
+                    ),
+                )
+                .min_w(ui(220.))
+        },
+    )
+}
+
+/// A menu item whose text is `size` points; standard items are a fixed size.
+fn nu_item(id: impl Into<ElementId>, label: impl Into<SharedString>, size: f32) -> PopupMenuItem {
+    let (id, label) = (id.into(), label.into());
+    PopupMenuItem::element(move |_, _| {
+        div()
+            .id(id.clone())
+            .aria_label(label.clone())
+            .text_size(ui(size))
+            .child(label.clone())
+            .test_support()
+    })
 }
 
 /// Right-click on one or more selected items.
@@ -45,102 +117,113 @@ pub fn item_menu(
     let nu_dir = folder_for_nu.clone();
     let favorite = first.path.clone();
 
-    menu.when(picker, |menu| {
-        menu.item(
-            PopupMenuItem::new(if single { "Choose" } else { "Choose Items" })
-                .action(Box::new(Choose)),
+    let menu = menu
+        .when(picker, |menu| {
+            menu.item(
+                PopupMenuItem::new(if single { "Choose" } else { "Choose Items" })
+                    .action(Box::new(Choose)),
+            )
+            .separator()
+        })
+        .item(
+            PopupMenuItem::new("Open")
+                .icon(IconName::FolderOpen)
+                .action(Box::new(OpenSelected)),
+        )
+        .item(
+            PopupMenuItem::new("Quick Look")
+                .icon(IconName::Eye)
+                .action(Box::new(QuickLook)),
+        )
+        .when(entries.iter().any(|e| !e.is_dir), |menu| {
+            menu.item(
+                PopupMenuItem::new("Open in Editor")
+                    .icon(Lucide::SquarePen)
+                    .action(Box::new(OpenInEditor)),
+            )
+        })
+        .when(searching && single, |menu| {
+            menu.item(
+                PopupMenuItem::new("Show in Enclosing Folder")
+                    .icon(IconName::Folder)
+                    .on_click(window.listener_for(
+                        view,
+                        move |this: &mut Finder, _: &ClickEvent, window, cx| {
+                            this.reveal_in_place(&enclosing, window, cx)
+                        },
+                    )),
+            )
+        })
+        .item(
+            PopupMenuItem::new(reveal_label())
+                .icon(IconName::ExternalLink)
+                .action(Box::new(RevealInFileManager)),
         )
         .separator()
-    })
-    .item(
-        PopupMenuItem::new("Open")
-            .icon(IconName::FolderOpen)
-            .action(Box::new(OpenSelected)),
-    )
-    .item(
-        PopupMenuItem::new("Quick Look")
-            .icon(IconName::Eye)
-            .action(Box::new(QuickLook)),
-    )
-    .when(searching && single, |menu| {
-        menu.item(
-            PopupMenuItem::new("Show in Enclosing Folder")
-                .icon(IconName::Folder)
+        .item(
+            PopupMenuItem::new(if single { "Copy Path" } else { "Copy Paths" })
+                .icon(IconName::Copy)
+                .action(Box::new(CopyPath)),
+        )
+        .item(
+            PopupMenuItem::new("Copy as Nushell List")
+                .icon(Lucide::ClipboardCopy)
+                .action(Box::new(CopyAsNuon)),
+        )
+        .when_some(nu_dir, |menu, dir| {
+            menu.item(
+                PopupMenuItem::new("Open Nushell Here")
+                    .icon(IconName::SquareTerminal)
+                    .on_click(window.listener_for(
+                        view,
+                        move |this: &mut Finder, _: &ClickEvent, window, cx| {
+                            this.open_terminal_at(&dir, window, cx)
+                        },
+                    )),
+            )
+        })
+        .item(
+            PopupMenuItem::new("Run Nushell Pipeline…")
+                .icon(Lucide::Terminal)
                 .on_click(window.listener_for(
                     view,
-                    move |this: &mut Finder, _: &ClickEvent, window, cx| {
-                        this.reveal_in_place(&enclosing, window, cx)
+                    |this: &mut Finder, _: &ClickEvent, window, cx| {
+                        if !this.nu_open {
+                            this.toggle_nu_panel(&ToggleNuPanel, window, cx);
+                        }
                     },
                 )),
+        );
+    let menu = actions_submenu(view, menu, window, cx);
+    menu.separator()
+        .item(
+            PopupMenuItem::new(if single {
+                "Rename…".to_string()
+            } else {
+                format!("Rename {} Items…", entries.len())
+            })
+            .icon(Lucide::Pencil)
+            .action(Box::new(Rename)),
         )
-    })
-    .item(
-        PopupMenuItem::new(reveal_label())
-            .icon(IconName::ExternalLink)
-            .action(Box::new(RevealInFileManager)),
-    )
-    .separator()
-    .item(
-        PopupMenuItem::new(if single { "Copy Path" } else { "Copy Paths" })
-            .icon(IconName::Copy)
-            .action(Box::new(CopyPath)),
-    )
-    .item(
-        PopupMenuItem::new("Copy as Nushell List")
-            .icon(Lucide::ClipboardCopy)
-            .action(Box::new(CopyAsNuon)),
-    )
-    .when_some(nu_dir, |menu, dir| {
-        menu.item(
-            PopupMenuItem::new("Open Nushell Here")
-                .icon(IconName::SquareTerminal)
-                .on_click(window.listener_for(
-                    view,
-                    move |this: &mut Finder, _: &ClickEvent, window, cx| {
-                        this.open_terminal_at(&dir, window, cx)
-                    },
-                )),
+        .when(single && first.is_navigable() && !is_favorite, |menu| {
+            menu.item(
+                PopupMenuItem::new("Add to Sidebar")
+                    .icon(IconName::Star)
+                    .on_click(window.listener_for(
+                        view,
+                        move |this: &mut Finder, _: &ClickEvent, _, cx| {
+                            this.add_favorite(favorite.clone(), cx)
+                        },
+                    )),
+            )
+        })
+        .separator()
+        .item(
+            PopupMenuItem::new("Move to Trash")
+                .icon(Lucide::Trash)
+                .action(Box::new(MoveToTrash)),
         )
-    })
-    .item(
-        PopupMenuItem::new("Run Nushell Pipeline…")
-            .icon(Lucide::Terminal)
-            .on_click(window.listener_for(
-                view,
-                |this: &mut Finder, _: &ClickEvent, window, cx| {
-                    if !this.nu_open {
-                        this.toggle_nu_panel(&ToggleNuPanel, window, cx);
-                    }
-                },
-            )),
-    )
-    .separator()
-    .when(single, |menu| {
-        menu.item(
-            PopupMenuItem::new("Rename…")
-                .icon(Lucide::Pencil)
-                .action(Box::new(Rename)),
-        )
-    })
-    .when(single && first.is_navigable() && !is_favorite, |menu| {
-        menu.item(
-            PopupMenuItem::new("Add to Sidebar")
-                .icon(IconName::Star)
-                .on_click(window.listener_for(
-                    view,
-                    move |this: &mut Finder, _: &ClickEvent, _, cx| {
-                        this.add_favorite(favorite.clone(), cx)
-                    },
-                )),
-        )
-    })
-    .separator()
-    .item(
-        PopupMenuItem::new("Move to Trash")
-            .icon(Lucide::Trash)
-            .action(Box::new(MoveToTrash)),
-    )
-    .min_w(px(230.))
+        .min_w(ui(230.))
 }
 
 /// Right-click on empty space in a view.
@@ -210,5 +293,5 @@ pub fn background_menu(
             .icon(IconName::RefreshCw)
             .action(Box::new(Refresh)),
     )
-    .min_w(px(220.))
+    .min_w(ui(220.))
 }

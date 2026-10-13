@@ -34,6 +34,9 @@ jobs:
       - name: Check Nushell scripts
         shell: nu {0}
         run: |
+          # The `fff` module for your config, and the starter actions.
+          nu-check --debug --as-module nu/fff.nu
+          nu-check --debug --as-module assets/actions.nu
           for file in (glob scripts/*.nu) {
             if ($file | path basename) == 'common.nu' {
               nu-check --debug --as-module $file
