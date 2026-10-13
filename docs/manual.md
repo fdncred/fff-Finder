@@ -55,6 +55,8 @@ fff-Finder [PATH] [OPTIONS]
       --pick         Choose files and print them as JSON to stdout
       --multiple     With --pick, allow choosing several items (also -m)
       --detach       Start in the background and return right away
+      --software-rendering
+                     Draw without a GPU (Linux)
   -h, --help         Show this help
   -V, --version      Show the version
 ```
@@ -73,6 +75,10 @@ fff-Finder [PATH] [OPTIONS]
   uses it.
 - `--pick` turns the window into a file chooser. See
   [Choosing files for scripts](#choosing-files-for-scripts).
+- `--software-rendering` draws with Mesa's software renderers instead of a
+  GPU, on Linux. It only applies when it starts the app, not when it hands
+  off to a running copy. See
+  [Without a GPU](#without-a-gpu-wsl2-and-virtual-machines).
 
 Indexing starts as soon as the app starts. The first scan has to finish
 before "This Computer" searches return results.
@@ -998,7 +1004,7 @@ holds:
 | `FFF_FINDER_DATA_DIR` | Use another data folder, for the app and for the `fff` module. |
 | `FFF_FINDER_WATCHDOG=1` | When the window stops responding for three seconds, save every thread's stack to `hang-<time>.txt` in the data folder (with `sample` on macOS) and print where. Other systems print the process ID to attach a debugger to. |
 | `FFF_FINDER_BIN` | Where the `fff` module finds the app. |
-| `FFF_FINDER_SOFTWARE_RENDERING=1` | On Linux, draw with Mesa's software renderers and skip the GPU drivers. See [Without a GPU](#without-a-gpu-wsl2-and-virtual-machines). |
+| `FFF_FINDER_SOFTWARE_RENDERING` | On Linux, `1` draws with Mesa's software renderers and skips the GPU drivers, like `--software-rendering`, and `0` never does, even with no GPU device. See [Without a GPU](#without-a-gpu-wsl2-and-virtual-machines). |
 | `TERMINAL` | On Linux, the terminal Automatic prefers. |
 
 The older `FFFFINDER_CONFIG_DIR`, `FFFFINDER_DATA_DIR`, and
@@ -1093,12 +1099,7 @@ The scripts ask Cargo where it builds, so `CARGO_TARGET_DIR` and
 On Linux, fff-Finder draws with the first graphics driver that works, trying
 GPUs before Mesa's software renderers (llvmpipe for OpenGL, lavapipe for
 Vulkan), which run on the CPU. With no usable GPU, as in WSL2 without GPU
-support and in many virtual machines, it ends up drawing in software and
-prints this once:
-
-```text
-fff-Finder: drawing in software with llvmpipe (…), not on a GPU
-```
+support and in many virtual machines, it ends up drawing in software.
 
 On the way, Mesa can print a warning for each hardware driver it tried, such
 as `libEGL warning: failed to get driver for name fd -1`,
@@ -1106,13 +1107,31 @@ as `libEGL warning: failed to get driver for name fd -1`,
 `MESA: error: ZINK: failed to choose pdev`. If the window opens and draws,
 they're harmless.
 
-Set `FFF_FINDER_SOFTWARE_RENDERING=1` to go straight to the software
-renderers, which should skip the hardware drivers and their warnings. It sets Mesa's
-`LIBGL_ALWAYS_SOFTWARE=1` and the Vulkan loader's
-`VK_LOADER_DRIVERS_SELECT=*lvp*` (Vulkan loader 1.3.234 or newer), unless
-you've set them yourself. It needs Mesa's software drivers: `libgl1-mesa-dri`
-and `mesa-vulkan-drivers` on Debian and Ubuntu. For the desktop entry, change
-its `Exec` line to `env FFF_FINDER_SOFTWARE_RENDERING=1 fff-Finder %f`.
+fff-Finder goes straight to the software renderers, skipping the hardware
+drivers and their warnings, when:
+
+- you pass `--software-rendering`, or set `FFF_FINDER_SOFTWARE_RENDERING=1`.
+- the system shows no GPU device at all: nothing in `/dev/dri`, no `/dev/dxg`
+  (WSL's GPU), and no `/dev/nvidia*`. No hardware driver could work then.
+  `FFF_FINDER_SOFTWARE_RENDERING=0` turns this off.
+
+It doesn't switch on its own just because it runs in WSL2 or a virtual
+machine, since many of those have a working GPU: WSLg passes the Windows GPU
+through `/dev/dxg`, and virtual machines often have a 3D-capable virtual GPU.
+When a GPU device exists but no driver for it works, fff-Finder falls back to
+software by itself and prints one line on stderr that says so and suggests
+the flag:
+
+```text
+fff-Finder: no GPU driver worked; drawing in software with llvmpipe (…). Pass --software-rendering …
+```
+
+Software rendering sets Mesa's `LIBGL_ALWAYS_SOFTWARE=1` and the Vulkan
+loader's `VK_LOADER_DRIVERS_SELECT=*lvp*` (Vulkan loader 1.3.234 or newer),
+unless you've set them yourself. In WSLg that also stops it from using the
+Windows GPU. It needs Mesa's software drivers: `libgl1-mesa-dri` and `mesa-vulkan-drivers` on
+Debian and Ubuntu. To make it stick for the desktop entry, change its `Exec`
+line to `fff-Finder --software-rendering %f`.
 
 ## Development
 
