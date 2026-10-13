@@ -260,7 +260,11 @@ fn window_requests_reach_the_ui_thread() {
         &endpoint,
         "POST",
         "/v1/show",
-        Some(&json!({"paths": ["/a", "/b"], "title": "Big"})),
+        // Absolute on every platform, unlike "/a".
+        Some(&json!({
+            "paths": [fx.tree().join("Roadmap.md"), fx.tree().join("notes.txt")],
+            "title": "Big"
+        })),
     )
     .unwrap();
     assert_eq!(shown["shown"], 2);

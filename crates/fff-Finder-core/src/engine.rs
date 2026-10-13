@@ -78,6 +78,18 @@ impl RootIndex {
         })
     }
 
+    /// `scope`, a folder in this root, spelled the way fff spells the root's
+    /// base path, which starts every path fff returns. On Windows fff
+    /// canonicalizes the base (long names, no `\\?\`), so it can differ from
+    /// the root as given, as `C:\Users\RUNNER~1` does from `C:\Users\runneradmin`.
+    fn in_base(&self, scope: &Path, base: &Path) -> PathBuf {
+        match scope.strip_prefix(&self.path) {
+            Ok(rest) if rest.as_os_str().is_empty() => base.to_path_buf(),
+            Ok(rest) => base.join(rest),
+            Err(_) => scope.to_path_buf(),
+        }
+    }
+
     fn status(&self) -> RootStatus {
         let guard = self.picker.read().ok();
         let picker = guard.as_ref().and_then(|g| g.as_ref());
@@ -492,9 +504,9 @@ impl Engine {
         };
         let base = picker.base_path().to_path_buf();
         part.total_indexed = picker.live_file_count();
+        let scope = req.scope.as_deref().map(|s| root.in_base(s, &base));
 
-        let scope_rel = req
-            .scope
+        let scope_rel = scope
             .as_deref()
             .filter(|s| *s != base.as_path())
             .and_then(|s| s.strip_prefix(&base).ok())
@@ -554,11 +566,11 @@ impl Engine {
         };
 
         let in_scope = |path: &Path| {
-            let scoped = match &req.scope {
+            let scoped = match &scope {
                 Some(scope) => path.starts_with(scope) && path != scope,
                 None => true,
             };
-            scoped && !inside_package(path, req.scope.as_deref())
+            scoped && !inside_package(path, scope.as_deref())
         };
         let name_ok = |name: &str| {
             !single_char
@@ -768,9 +780,9 @@ impl Engine {
                 continue;
             };
             let base = picker.base_path().to_path_buf();
+            let scope = req.scope.as_deref().map(|s| root.in_base(s, &base));
             // A scope inside this root narrows the search with a glob.
-            let scope_glob = req
-                .scope
+            let scope_glob = scope
                 .as_deref()
                 .filter(|s| *s != base.as_path())
                 .and_then(|s| s.strip_prefix(&base).ok())
@@ -841,7 +853,7 @@ impl Engine {
                     continue;
                 };
                 let path = join_rel(&base, &file.relative_path(picker));
-                if let Some(scope) = &req.scope
+                if let Some(scope) = &scope
                     && !path.starts_with(scope)
                 {
                     continue;
@@ -1302,6 +1314,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn scope_follows_the_base_spelling() {
+        // As on Windows, where fff spells `C:\Users\RUNNER~1` in full.
+        let root = RootIndex {
+            path: "/short/tree".into(),
+            canonical: "/long/tree".into(),
+            picker: SharedFilePicker::default(),
+        };
+        let base = Path::new("/long/tree");
+        let scope = |s: &str| root.in_base(Path::new(s), base);
+        assert_eq!(scope("/short/tree"), base);
+        assert_eq!(
+            scope("/short/tree/Projects/atlas"),
+            base.join("Projects/atlas")
+        );
+        assert_eq!(scope("/elsewhere"), Path::new("/elsewhere"));
+    }
+
+    #[test]
     fn highlights() {
         assert_eq!(highlight("Project Atlas.txt", "proj"), vec![(0, 4)]);
         assert_eq!(highlight("main.rs", "mrs"), vec![(0, 1), (5, 7)]);
@@ -1341,12 +1371,14 @@ mod tests {
         });
         assert!(engine.wait_ready(Duration::from_secs(20)));
         let found = engine.glob("**/*.app/Contents/Info.plist", 100);
-        let dir = strip_trailing_separator(&dir);
+        // fff spells the root its own way on Windows (long names, `\`), so
+        // compare the files rather than the spelling.
+        let real = |p: &Path| std::fs::canonicalize(p).unwrap();
         assert_eq!(
-            found,
+            found.iter().map(|p| real(p)).collect::<Vec<_>>(),
             vec![
-                dir.join("One.app/Contents/Info.plist"),
-                dir.join("nested/Two.app/Contents/Info.plist"),
+                real(&dir.join("One.app/Contents/Info.plist")),
+                real(&dir.join("nested/Two.app/Contents/Info.plist")),
             ]
         );
         std::fs::remove_dir_all(dir).unwrap();
