@@ -1,0 +1,4 @@
+# `block` 0.1.6 (pulled in by gpui-kit via cocoa/metal) trips a future-incompat
+# lint that we can't fix ourselves. Hide the notice until upstream moves off it.
+[future-incompat-report]
+frequency = "never"
