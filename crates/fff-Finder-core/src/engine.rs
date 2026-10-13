@@ -1371,12 +1371,14 @@ mod tests {
         });
         assert!(engine.wait_ready(Duration::from_secs(20)));
         let found = engine.glob("**/*.app/Contents/Info.plist", 100);
-        let dir = strip_trailing_separator(&dir);
+        // fff spells the root its own way on Windows (long names, `\`), so
+        // compare the files rather than the spelling.
+        let real = |p: &Path| std::fs::canonicalize(p).unwrap();
         assert_eq!(
-            found,
+            found.iter().map(|p| real(p)).collect::<Vec<_>>(),
             vec![
-                dir.join("One.app/Contents/Info.plist"),
-                dir.join("nested/Two.app/Contents/Info.plist"),
+                real(&dir.join("One.app/Contents/Info.plist")),
+                real(&dir.join("nested/Two.app/Contents/Info.plist")),
             ]
         );
         std::fs::remove_dir_all(dir).unwrap();
