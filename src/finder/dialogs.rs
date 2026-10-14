@@ -4,8 +4,8 @@ use super::{AppState, Finder, group_digits};
 use crate::actions::*;
 use crate::model::Location;
 use crate::theme::ui;
-use fff_Finder_core::terminals::{self, CUSTOM, Platform, Terminal};
-use fff_Finder_core::{Appearance, FileEntry, SearchCase, config};
+use fffinder_core::terminals::{self, CUSTOM, Platform, Terminal};
+use fffinder_core::{Appearance, FileEntry, SearchCase, config};
 use gpui_kit::component::button::{Button, ButtonGroup, ButtonVariant, ButtonVariants as _};
 use gpui_kit::component::dialog::{DialogClose, DialogFooter};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -55,7 +55,7 @@ fn search_engine_controls(
     window: &mut Window,
 ) -> impl IntoElement {
     let search = finder.config.search.clone();
-    type Field = fn(&mut fff_Finder_core::SearchSettings) -> &mut bool;
+    type Field = fn(&mut fffinder_core::SearchSettings) -> &mut bool;
     let switches: [(&'static str, &'static str, bool, Field); 5] = [
         (
             "follow-symlinks",
@@ -420,7 +420,7 @@ impl Finder {
                             div()
                                 .text_size(ui(12.))
                                 .text_color(muted)
-                                .child("“This Computer” searches these folders. Indexes stay live while fff-Finder runs."),
+                                .child("“This Computer” searches these folders. Indexes stay live while fffinder runs."),
                         )
                         .child(root_list)
                         .child(
@@ -662,7 +662,7 @@ impl Finder {
         cx: &mut Context<Self>,
     ) {
         self.focus_before_dialog(window, cx);
-        let name = fff_Finder_core::entry::display_name(&path);
+        let name = fffinder_core::entry::display_name(&path);
         let stem_len = if path.is_dir() {
             name.len()
         } else {

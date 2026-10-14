@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/fff-Finder-core"]
+members = [".", "crates/fffinder-core"]
 resolver = "2"
 
 [workspace.package]
@@ -8,7 +8,7 @@ edition = "2024"
 authors = ["Darren Schroeder"]
 
 [workspace.dependencies]
-fff-Finder-core = { path = "crates/fff-Finder-core" }
+fffinder-core = { path = "crates/fffinder-core" }
 fff-search = "0.11.0"
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
@@ -17,22 +17,22 @@ dirs = "6"
 log = "0.4"
 
 [package]
-name = "fff-Finder"
+name = "fffinder"
 description = "A fast, cross-platform Finder-style file search app built on fff-search and GPUI Kit"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 
 [lib]
-name = "fff_Finder"
+name = "fffinder"
 path = "src/lib.rs"
 
 [[bin]]
-name = "fff-Finder"
+name = "fffinder"
 path = "src/main.rs"
 
 [dependencies]
-fff-Finder-core.workspace = true
+fffinder-core.workspace = true
 gpui-kit = "0.7.3"
 anyhow.workspace = true
 serde.workspace = true

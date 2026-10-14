@@ -5,7 +5,7 @@ use super::{Finder, SearchScope};
 use crate::actions::*;
 use crate::theme::palette;
 use crate::theme::ui;
-use fff_Finder_core::{SortKey, ViewMode};
+use fffinder_core::{SortKey, ViewMode};
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::{Button, ButtonRounded, ButtonVariants as _};
 use gpui_kit::component::input::Input;
@@ -45,6 +45,16 @@ pub fn pill_button(id: impl Into<ElementId>, icon: impl Into<Icon>, cx: &App) ->
         .w(ui(36.))
         .h(ui(28.))
         .text_color(cx.theme().foreground)
+}
+
+/// A pill button that opens a menu, with a caret after its icon.
+pub fn menu_button(id: impl Into<ElementId>, icon: impl Into<Icon>, cx: &App) -> Button {
+    // The button puts its icon and caret at its two edges; the padding moves
+    // them in from the pill's rounded ends.
+    pill_button(id, icon, cx)
+        .w(ui(52.))
+        .px(ui(8.))
+        .dropdown_caret(true)
 }
 
 thread_local! {
@@ -93,7 +103,7 @@ pub fn window_drag_area<E: InteractiveElement>(el: E) -> E {
 }
 
 /// Minimize, maximize, and close buttons for a Linux window whose title bar
-/// fff-Finder draws, because the window manager draws none. They're narrower
+/// fffinder draws, because the window manager draws none. They're narrower
 /// than the pill buttons so the toolbar still fits the default window.
 fn window_controls(window: &Window, cx: &mut Context<Finder>) -> Option<Div> {
     if cfg!(any(target_os = "macos", target_os = "windows"))
@@ -208,9 +218,7 @@ impl Finder {
 
         let sort_view = view.clone();
         let sort = pill(cx).child(
-            pill_button("sort", Lucide::ArrowUpDown, cx)
-                .w(ui(48.))
-                .dropdown_caret(true)
+            menu_button("sort", Lucide::ArrowUpDown, cx)
                 .tooltip("Sort and View Options")
                 .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, window, cx| {
                     sort_menu(&sort_view, menu, window, cx)
@@ -219,9 +227,7 @@ impl Finder {
 
         let nu_view = view.clone();
         let nushell = pill(cx).child(
-            pill_button("nushell", IconName::SquareTerminal, cx)
-                .w(ui(48.))
-                .dropdown_caret(true)
+            menu_button("nushell", IconName::SquareTerminal, cx)
                 .tooltip("Nushell")
                 .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, window, cx| {
                     nushell_menu(&nu_view, menu, window, cx)
@@ -230,9 +236,7 @@ impl Finder {
 
         let actions_view = view.clone();
         let actions = pill(cx).child(
-            pill_button("actions", IconName::Ellipsis, cx)
-                .w(ui(48.))
-                .dropdown_caret(true)
+            menu_button("actions", IconName::Ellipsis, cx)
                 .tooltip("Actions")
                 .dropdown_menu_with_anchor(Anchor::TopRight, move |menu, window, cx| {
                     actions_menu(&actions_view, menu, window, cx)
@@ -243,7 +247,7 @@ impl Finder {
         // folder button, but before the search starts.
         let folder = self
             .current_folder()
-            .map(fff_Finder_core::entry::display_name);
+            .map(fffinder_core::entry::display_name);
         let in_folder = folder.is_some() && self.scope == SearchScope::Folder;
         let scope_tip = match &folder {
             Some(name) => format!("Search Only in “{name}”"),

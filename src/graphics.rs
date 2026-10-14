@@ -3,17 +3,18 @@
 //! a machine with no usable GPU (WSL2, many virtual machines) still works,
 //! after Mesa prints warnings about each hardware driver it tried.
 
+use fffinder_core::config::env_var;
 use gpui_kit::Window;
 use std::path::Path;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-/// Why fff-Finder asked Mesa for software rendering.
+/// Why fffinder asked Mesa for software rendering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Reason {
     /// `--software-rendering`.
     Flag,
-    /// `FFF_FINDER_SOFTWARE_RENDERING`.
+    /// `FFFINDER_SOFTWARE_RENDERING`.
     Env,
     /// The system shows no GPU device, so no hardware driver could work.
     NoGpuDevice,
@@ -41,7 +42,7 @@ pub fn prepare(flag: bool) {
     if !cfg!(all(unix, not(target_os = "macos"))) {
         return;
     }
-    let env = std::env::var("FFF_FINDER_SOFTWARE_RENDERING").ok();
+    let env = env_var("FFFINDER_SOFTWARE_RENDERING").and_then(|v| v.into_string().ok());
     let reason = decide(flag, env.as_deref(), has_gpu_device());
     CHOSEN.get_or_init(|| reason);
     if reason.is_none() {
@@ -83,14 +84,14 @@ pub fn report(window: &Window) {
     let device = gpu.device_name;
     match CHOSEN.get().copied().flatten() {
         Some(Reason::Flag | Reason::Env) => {
-            eprintln!("fff-Finder: drawing in software with {device}, as asked")
+            eprintln!("fffinder: drawing in software with {device}, as asked")
         }
         Some(Reason::NoGpuDevice) => {
-            eprintln!("fff-Finder: no GPU device found; drawing in software with {device}")
+            eprintln!("fffinder: no GPU device found; drawing in software with {device}")
         }
         None => eprintln!(
-            "fff-Finder: no GPU driver worked; drawing in software with {device}. \
-             Pass --software-rendering or set FFF_FINDER_SOFTWARE_RENDERING=1 \
+            "fffinder: no GPU driver worked; drawing in software with {device}. \
+             Pass --software-rendering or set FFFINDER_SOFTWARE_RENDERING=1 \
              to skip the GPU drivers and their warnings."
         ),
     }

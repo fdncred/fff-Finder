@@ -4,7 +4,7 @@
 use super::{Finder, Row};
 use crate::macos::IconLookup;
 use crate::theme::{Palette, palette, ui};
-use fff_Finder_core::{FileEntry, FileKind, SortKey, ViewMode};
+use fffinder_core::{FileEntry, FileKind, SortKey, ViewMode};
 use gpui_kit::TestSupportExt as _;
 use gpui_kit::component::menu::ContextMenuExt as _;
 use gpui_kit::component::scroll::ScrollableElement as _;

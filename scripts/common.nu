@@ -1,4 +1,4 @@
-# Shared helpers for the fff-Finder build scripts.
+# Shared helpers for the fffinder build scripts.
 
 const SCRIPTS_DIR = path self | path dirname
 

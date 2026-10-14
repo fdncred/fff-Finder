@@ -1,6 +1,6 @@
 #!/usr/bin/env nu
 # Render assets/app-icon.svg into the icon the Windows build embeds,
-# assets/windows/fff-Finder.ico. Runs on macOS (Quick Look and sips); run it
+# assets/windows/fffinder.ico. Runs on macOS (Quick Look and sips); run it
 # after changing the SVG and commit the result.
 
 use common.nu *
@@ -16,7 +16,7 @@ def main [] {
         ^sips -z $size $size $png --out $out | ignore
         {size: $size, data: (open --raw $out)}
     }
-    let ico = $root | path join assets windows fff-Finder.ico
+    let ico = $root | path join assets windows fffinder.ico
     pack-ico $images | save --force $ico
     rm --recursive --force $work
     $ico

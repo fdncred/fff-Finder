@@ -1,8 +1,5 @@
-//! Core of fff-Finder: search engine wrapper around `fff-search`, file model,
+//! Core of fffinder: search engine wrapper around `fff-search`, file model,
 //! folder listing, sidebar places, settings, terminals, and formatting.
-
-// The crate is named `fff_Finder_core`, after the app, which isn't snake case.
-#![allow(non_snake_case)]
 
 pub mod config;
 pub mod engine;

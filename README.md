@@ -1,6 +1,6 @@
-<img src="assets/app-icon.svg" alt="fff-Finder icon" width="80" height="80">
+<img src="assets/app-icon.svg" alt="fffinder icon" width="80" height="80">
 
-# fff-Finder
+# fffinder
 
 A Finder-style file browser with instant fuzzy search across your whole
 computer, written in Rust. Search uses [fff-search](https://crates.io/crates/fff-search),
@@ -41,7 +41,7 @@ menu, shortcut, setting, and command.
 scanned in the shell. Load it from your config:
 
 ```nu
-use /path/to/fff-Finder/nu/fff.nu *
+use /path/to/fffinder/nu/fff.nu *
 fff keybindings      # Ctrl+T inserts picked paths, Alt+C picks a folder to cd into
 ```
 
@@ -73,7 +73,7 @@ The manual lists [every `fff` command](docs/manual.md#the-fff-nushell-module).
   `buffer_editor`.
 - **Open Nushell Here** (Cmd+Alt+T) opens `nu` in the folder, in the terminal
   you pick in Settings.
-- **`fff-Finder --pick`** turns the window into a file chooser for scripts and
+- **`fffinder --pick`** turns the window into a file chooser for scripts and
   prints the chosen paths as JSON.
 
 ![Nushell pipeline panel](docs/images/nushell-dark.png)
@@ -83,11 +83,11 @@ The manual lists [every `fff` command](docs/manual.md#the-fff-nushell-module).
 The `fff` module talks to the app over a local socket, and your own tools can
 too. The endpoints are plain HTTP with JSON. They're experimental and may
 change between versions. On macOS and Linux the socket is
-`run/fff-Finder.sock` in the data folder, and only your user can open it.
+`run/fffinder.sock` in the data folder, and only your user can open it.
 Windows uses 127.0.0.1 with a random token.
 
 ```nu
-let sock = ($nu.data-dir | path dirname | path join fff-Finder run fff-Finder.sock)
+let sock = ($nu.data-dir | path dirname | path join fffinder run fffinder.sock)
 http get --unix-socket $sock 'http://localhost/v1/find?query=readme&limit=5'
 ```
 
@@ -106,13 +106,13 @@ packages, and covers WSL2 and virtual machines without a GPU.
 
 ```nu
 nu scripts/install.nu            # release build into ~/.cargo/bin, or --dest ~/bin
-nu scripts/bundle.nu             # or package it: dist/fff-Finder.app on macOS, a .desktop folder on Linux
+nu scripts/bundle.nu             # or package it: dist/fffinder.app on macOS, a .desktop folder on Linux
 nu scripts/bundle.nu --install   # Linux: also install the desktop entry
 ```
 
 `install.nu` prints the `use` line that loads the `fff` module.
 
-On macOS, give fff-Finder Full Disk Access in System Settings > Privacy &
+On macOS, give fffinder Full Disk Access in System Settings > Privacy &
 Security, then reopen it, so it can index Desktop, Documents, Downloads, and
 other protected folders without asking. On Linux, a big home folder can use up
 the inotify watch limit. Raise it with
@@ -155,14 +155,14 @@ Cmd on macOS, Ctrl elsewhere. The manual lists
 In Settings you choose the search locations (or the entire disk),
 fff-search's options, the appearance, text sizes, and the terminal for Open
 Nushell Here. Everything saves to `settings.json` in
-`~/Library/Application Support/fff-Finder` on macOS, `~/.config/fff-Finder` on
-Linux, or `%APPDATA%\fff-Finder` on Windows. The manual covers
+`~/Library/Application Support/fffinder` on macOS, `~/.config/fffinder` on
+Linux, or `%APPDATA%\fffinder` on Windows. The manual covers
 [each setting](docs/manual.md#settings) and [every field](docs/manual.md#settingsjson).
 
 ## How it's built
 
 ```text
-crates/fff-Finder-core   search engine wrapper, file model, listing, places, settings, terminals
+crates/fffinder-core   search engine wrapper, file model, listing, places, settings, terminals
 src/                     the GPUI Kit app (src/finder/ holds the window and its views)
 src/server/              the local socket server and its client
 src/macos.rs             macOS integration through AppKit

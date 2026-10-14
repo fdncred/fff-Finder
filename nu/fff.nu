@@ -1,23 +1,33 @@
-# fff-Finder commands for Nushell.
+# fffinder commands for Nushell.
 #
-#     use /path/to/fff-Finder/nu/fff.nu *
+#     use /path/to/fffinder/nu/fff.nu *
 #     fff keybindings      # Ctrl+T inserts picked paths, Alt+C picks a folder to cd into
 #
-# `fff find`, `fff search`, and the rest ask the running fff-Finder window,
+# `fff find`, `fff search`, and the rest ask the running fffinder window,
 # which keeps its index live, so nothing is scanned in the shell. The
 # protocol is described in docs/protocol.md.
 
 const MODULE_DIR = path self | path dirname
 
-# fff-Finder's data folder, worked out the way the app does.
+# $env.FFFINDER_<name>, or the same variable under an earlier name
+# (FFF_FINDER_, then FFFFINDER_), the way the app reads it.
+def app-env [name: string]: nothing -> any {
+    let value = ['FFFINDER_' 'FFF_FINDER_' 'FFFFINDER_']
+        | each {|prefix| $env | get --optional $'($prefix)($name)' }
+        | get 0?
+    if ($value | is-empty) { null } else { $value }
+}
+
+# fffinder's data folder, worked out the way the app does.
 def data-dir []: nothing -> path {
-    if ($env.FFF_FINDER_DATA_DIR? | is-not-empty) {
-        return ($env.FFF_FINDER_DATA_DIR | path expand)
+    let dir = app-env DATA_DIR
+    if $dir != null {
+        return ($dir | path expand)
     }
     match $nu.os-info.name {
-        'macos' => ($nu.home-dir | path join Library 'Application Support' fff-Finder)
-        'windows' => ($env.LOCALAPPDATA | path join fff-Finder)
-        _ => ($env.XDG_DATA_HOME? | default ($nu.home-dir | path join .local share) | path join fff-Finder)
+        'macos' => ($nu.home-dir | path join Library 'Application Support' fffinder)
+        'windows' => ($env.LOCALAPPDATA | path join fffinder)
+        _ => ($env.XDG_DATA_HOME? | default ($nu.home-dir | path join .local share) | path join fffinder)
     }
 }
 
@@ -25,7 +35,7 @@ def data-dir []: nothing -> path {
 def server-info []: nothing -> record {
     let info = data-dir | path join run server.json
     if not ($info | path exists) {
-        error make {msg: 'no fff-Finder window is running', help: 'start one with `fff gui`'}
+        error make {msg: 'no fffinder window is running', help: 'start one with `fff gui`'}
     }
     open $info
 }
@@ -55,7 +65,7 @@ def request [
             http post --full --allow-errors --headers $headers --content-type application/json $url ($body | to json)
         }
     } catch {|err|
-        error make {msg: $'fff-Finder is not answering: ($err.msg)', help: 'start it with `fff gui`'}
+        error make {msg: $'fffinder is not answering: ($err.msg)', help: 'start it with `fff gui`'}
     }
     if $response.status != 200 {
         let message = try { $response.body.error } catch { $'request failed with status ($response.status)' }
@@ -64,14 +74,14 @@ def request [
     $response.body
 }
 
-# Start fff-Finder in the background if no window is answering yet.
+# Start fffinder in the background if no window is answering yet.
 def ensure-running []: nothing -> nothing {
     let answering = {|| try { request GET /v1/status | ignore; true } catch { false } }
     if (do $answering) { return }
     run-external (app-binary) '--detach'
     let started = 1..80 | each { $in } | any {|_| sleep 250ms; do $answering }
     if not $started {
-        error make {msg: 'fff-Finder did not start within 20 seconds'}
+        error make {msg: 'fffinder did not start within 20 seconds'}
     }
 }
 
@@ -84,10 +94,10 @@ def query-params [pairs: record]: nothing -> list {
     $pairs | transpose key value | where value != null
 }
 
-# The fff-Finder program: $env.FFF_FINDER_BIN, PATH, the app bundle, or a
+# The fffinder program: $env.FFFINDER_BIN, PATH, the app bundle, or a
 # build in this repository ($env.CARGO_TARGET_DIR, then target/).
 def app-binary []: nothing -> path {
-    let name = if $nu.os-info.name == 'windows' { 'fff-Finder.exe' } else { 'fff-Finder' }
+    let name = if $nu.os-info.name == 'windows' { 'fffinder.exe' } else { 'fffinder' }
     let repo = $MODULE_DIR | path dirname
     # A relative CARGO_TARGET_DIR is taken from the repository root.
     let builds = [$env.CARGO_TARGET_DIR? 'target']
@@ -96,20 +106,20 @@ def app-binary []: nothing -> path {
         | each {|dir| [($dir | path join release $name) ($dir | path join debug $name)] }
         | flatten
     let candidates = [
-        $env.FFF_FINDER_BIN?
+        (app-env BIN)
         (which $name | get 0?.path)
-        '/Applications/fff-Finder.app/Contents/MacOS/fff-Finder'
-        ($nu.home-dir | path join Applications fff-Finder.app Contents MacOS fff-Finder)
+        '/Applications/fffinder.app/Contents/MacOS/fffinder'
+        ($nu.home-dir | path join Applications fffinder.app Contents MacOS fffinder)
         ...$builds
     ]
     let found = $candidates | compact | where {|p| ($p | path exists) and ($p | path type) == 'file' } | get 0?
     if $found == null {
-        error make {msg: 'fff-Finder was not found; set $env.FFF_FINDER_BIN or run scripts/install.nu'}
+        error make {msg: 'fffinder was not found; set $env.FFFINDER_BIN or run scripts/install.nu'}
     }
     $found
 }
 
-# Choose files in the fff-Finder window and return their paths.
+# Choose files in the fffinder window and return their paths.
 #
 # Return (or double-click) chooses and Escape cancels, which returns nothing.
 @example "Pick a CSV file and open it as a table" { open (fff pick *.csv) }
@@ -133,7 +143,7 @@ export def "fff pick" [
     if $multiple { $paths } else { $paths | get 0? }
 }
 
-# Open the fff-Finder window at a folder, optionally searching.
+# Open the fffinder window at a folder, optionally searching.
 @example "Open the window at the current folder" { fff gui }
 @example "Search for READMEs under ~/src" { fff gui ~/src --query readme }
 export def "fff gui" [
@@ -145,13 +155,13 @@ export def "fff gui" [
     run-external (app-binary) ...$args
 }
 
-# Find files and folders by name in fff-Finder's live index, ranked the way
+# Find files and folders by name in fffinder's live index, ranked the way
 # the window ranks them.
 @example "Find a file by name" { fff find main rs }
 @example "Documents only, best match opened as data" { fff find budget --kind document | first | open $in.path }
 @example "Only under the current folder" { fff find readme --here }
 export def "fff find" [
-    ...query: string     # Search words, with fff-Finder's search syntax
+    ...query: string     # Search words, with fffinder's search syntax
     --files (-f)         # Files only
     --dirs (-d)          # Folders only
     --kind (-k): string  # document, image, movie, audio, code, archive, or folder
@@ -207,7 +217,7 @@ export def "fff dirs" [
     }
 }
 
-# Search file contents in fff-Finder's index.
+# Search file contents in fffinder's index.
 @example "Plain text" { fff search TODO }
 @example "A regex, with a line of context" { fff search --regex 'fn \w+_test' --context 1 }
 @example "Group matches by file" { fff search FIXME | group-by path }
@@ -256,7 +266,7 @@ export def "fff status" []: nothing -> record {
     $status | update roots {|s| $s.roots | update path {|r| $r.path } }
 }
 
-# Stream file changes from fff-Finder's index until --timeout or --max-events.
+# Stream file changes from fffinder's index until --timeout or --max-events.
 @example "The next change to a Rust file" { fff watch '**/*.rs' --max-events 1 }
 export def "fff watch" [
     pattern?: string           # Glob, path, or folder; empty watches everything
@@ -287,7 +297,7 @@ export def "fff watch" [
     $body | lines | where $it != '' | each { from json }
 }
 
-# What is selected in the front fff-Finder window (or, with --all, everything it shows).
+# What is selected in the front fffinder window (or, with --all, everything it shows).
 export def "fff selection" [
     --all (-a)  # Every item shown instead of only the selection
 ]: nothing -> table {
@@ -303,8 +313,8 @@ export def "fff selection" [
     }
 }
 
-# Show files in the fff-Finder window: paths, `ls` or `glob` output, or any
-# table with a path or name column. Starts fff-Finder if it isn't running.
+# Show files in the fffinder window: paths, `ls` or `glob` output, or any
+# table with a path or name column. Starts fffinder if it isn't running.
 @example "Browse big images as icons" { glob **/*.{png,jpg} | where { (ls $in | get 0.size) > 5mb } | fff show --title 'Big images' }
 @example "Recently changed files" { ls **/* | where modified > ((date now) - 1day) | fff show }
 export def "fff show" [
@@ -329,7 +339,7 @@ export def "fff open" [
     open $hit
 }
 
-# Pick files in fff-Finder and insert them at the cursor as NUON.
+# Pick files in fffinder and insert them at the cursor as NUON.
 export def "fff insert" [
     ...query: string  # Initial search text
 ]: nothing -> nothing {
@@ -339,7 +349,7 @@ export def "fff insert" [
     commandline edit --insert $text
 }
 
-# Pick a folder (or a file's folder) in fff-Finder and cd into it.
+# Pick a folder (or a file's folder) in fffinder and cd into it.
 export def --env "fff cd" [
     ...query: string  # Initial search text
 ]: nothing -> nothing {
@@ -349,7 +359,7 @@ export def --env "fff cd" [
     cd $dir
 }
 
-# Pick a file in fff-Finder and open it in $env.config.buffer_editor,
+# Pick a file in fffinder and open it in $env.config.buffer_editor,
 # $env.VISUAL, or $env.EDITOR.
 export def "fff edit" [
     ...query: string  # Initial search text

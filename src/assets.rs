@@ -1,5 +1,5 @@
 //! One asset source for the app: GPUI Kit's default icons, the extra Lucide
-//! icons used here, and fff-Finder's own colored file-type icons.
+//! icons used here, and fffinder's own colored file-type icons.
 
 use gpui_kit::assets::{Assets as KitAssets, icon_assets};
 use gpui_kit::{AssetSource, Result, SharedString};
@@ -64,4 +64,4 @@ impl AssetSource for AppAssets {
     }
 }
 
-pub const THEMES: &str = include_str!("../assets/themes/fff-Finder.json");
+pub const THEMES: &str = include_str!("../assets/themes/fffinder.json");

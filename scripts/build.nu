@@ -1,5 +1,5 @@
 #!/usr/bin/env nu
-# Build fff-Finder, and optionally test and lint it.
+# Build fffinder, and optionally test and lint it.
 
 use common.nu *
 
@@ -12,6 +12,6 @@ def main [
     cd (repo-root)
     if $lint { ^cargo clippy --workspace --all-targets -- -D warnings }
     if $test { ^cargo test --workspace }
-    let binary = $target | path join $'fff-Finder(exe-suffix)'
+    let binary = $target | path join $'fffinder(exe-suffix)'
     {binary: $binary, size: (ls $binary | get 0.size)}
 }

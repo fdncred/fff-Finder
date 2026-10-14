@@ -1,6 +1,6 @@
-# fff-Finder manual
+# fffinder manual
 
-This manual describes everything fff-Finder does, control by control. The
+This manual describes everything fffinder does, control by control. The
 [README](../README.md) covers installing it, [Building](#building) lists what
 each platform needs to build it, [Development](#development) covers testing
 it, and [protocol.md](protocol.md) documents the local socket that the `fff`
@@ -11,7 +11,7 @@ instead.
 
 ## Contents
 
-- [Starting fff-Finder](#starting-fff-finder)
+- [Starting fffinder](#starting-fffinder)
 - [The window](#the-window)
 - [Toolbar](#toolbar)
 - [Sidebar](#sidebar)
@@ -43,12 +43,12 @@ instead.
 - [Building](#building)
 - [Development](#development)
 
-## Starting fff-Finder
+## Starting fffinder
 
-Run `fff-Finder`, open the app bundle, or use `fff gui` from Nushell.
+Run `fffinder`, open the app bundle, or use `fff gui` from Nushell.
 
 ```text
-fff-Finder [PATH] [OPTIONS]
+fffinder [PATH] [OPTIONS]
 
   [PATH]             Folder to open (default: last folder or home)
   -q, --query TEXT   Start with this search (also --query=TEXT)
@@ -64,14 +64,14 @@ fff-Finder [PATH] [OPTIONS]
 - A PATH that is a file opens its folder.
 - With no PATH, the window opens the folder you last had open, or your home
   folder if that folder is gone.
-- If fff-Finder is already running, a second launch hands its PATH and
+- If fffinder is already running, a second launch hands its PATH and
   `--query` to the running copy, which opens a window, and then exits. There
   is always one app and one index. `--pick` windows are separate and never
   hand off.
-- On macOS, fff-Finder keeps running after you close its last window, like
+- On macOS, fffinder keeps running after you close its last window, like
   Finder, so the index stays warm for Nushell. Clicking the Dock icon opens a
   new window. On Linux and Windows, closing the last window quits.
-- `--detach` starts fff-Finder in the background and returns at once. `fff gui`
+- `--detach` starts fffinder in the background and returns at once. `fff gui`
   uses it.
 - `--pick` turns the window into a file chooser. See
   [Choosing files for scripts](#choosing-files-for-scripts).
@@ -84,7 +84,7 @@ Indexing starts as soon as the app starts. The first scan has to finish
 before "This Computer" searches return results.
 
 macOS asks before an app reads Desktop, Documents, or Downloads. To index
-those and other protected folders without prompts, give fff-Finder Full Disk
+those and other protected folders without prompts, give fffinder Full Disk
 Access in System Settings > Privacy & Security, then reopen it.
 
 On Linux the index watches folders with inotify, one watch per folder, and a
@@ -116,7 +116,7 @@ The file area shows a message when there is nothing to list:
 | No Recent Files | Recents is empty. |
 | No Items | The folder is empty. |
 
-Open folders refresh on their own. fff-Finder checks the folder every two
+Open folders refresh on their own. fffinder checks the folder every two
 seconds and reloads it quietly when it changed on disk.
 
 ### Path bar
@@ -295,7 +295,7 @@ Cmd+/ shows this table in the app.
 
 ### Ranking and limits
 
-fff-search ranks results, and fff-Finder re-ranks them so name matches come
+fff-search ranks results, and fffinder re-ranks them so name matches come
 first, shallow paths come before deep ones, and nothing inside `.app` or
 `.framework` bundles shows. When a word matches files exactly, typo-only
 matches are dropped.
@@ -328,7 +328,7 @@ search it, so a git repository searched that way includes its hidden files.
 ## Recents
 
 Recents (Cmd+Shift+F) shows up to 500 files from the search locations,
-ranked by how often and how recently you opened them in fff-Finder, then by
+ranked by how often and how recently you opened them in fffinder, then by
 modification time. It waits for the index to be ready.
 
 ## Previews and Quick Look
@@ -352,7 +352,7 @@ without it, structured files preview as text.
 
 `.nu` previews run `nu-highlight` in a login shell, so your `color_config`
 applies. Every color comes from it, with one addition: `nu-highlight` leaves
-comments uncolored, so fff-Finder draws comments in the theme's secondary
+comments uncolored, so fffinder draws comments in the theme's secondary
 (gray) text color.
 
 ### Quick Look
@@ -538,7 +538,7 @@ columns as the [Nushell panel](#the-nushell-panel), and its result shows in
 the panel. Running an action fills in the panel's pipeline, so you can see and
 edit what ran.
 
-The first time, fff-Finder writes starter actions:
+The first time, fffinder writes starter actions:
 
 | Action | What it returns |
 | --- | --- |
@@ -548,12 +548,12 @@ The first time, fff-Finder writes starter actions:
 | Find Duplicates | Files with the same contents (SHA-256) among the selected files and everything inside the selected folders. Empty files and symbolic links are skipped. |
 | Archive | Packs the selection into `Archive <date time>.tar.gz` next to the first item. Items may come from different folders. |
 
-When a new version of fff-Finder changes the starters, it updates an
+When a new version of fffinder changes the starters, it updates an
 `actions.nu` you never edited. A file you edited is left alone.
 
 - **Edit Actions…** opens `actions.nu` in your editor, writing the starters
   first if it is missing.
-- **Reload Actions** reads the file again. fff-Finder also reloads it on its
+- **Reload Actions** reads the file again. fffinder also reloads it on its
   own within a few seconds of a save.
 - If the file has an error, the submenu shows it as its first, disabled item.
 
@@ -566,7 +566,7 @@ export def "count lines" []: table -> table {
 
 ## Using your Nushell environment
 
-With **Use Nushell's file colors and editor** on in Settings, fff-Finder reads
+With **Use Nushell's file colors and editor** on in Settings, fffinder reads
 `$env.LS_COLORS`, `$env.config.buffer_editor`, `$VISUAL`, `$EDITOR`, and
 `PATH` from a `nu --login` session, so `config.nu` and `env.nu` apply.
 
@@ -606,7 +606,7 @@ Terminals are found the way each system records them:
 
 - macOS: the `Info.plist` of every app in the Applications folders and of every
   app the index finds. An app that adds a "New … Window Here" service and opens
-  shell scripts counts even if fff-Finder doesn't know it.
+  shell scripts counts even if fffinder doesn't know it.
 - Linux: `.desktop` entries in the `TerminalEmulator` category, programs on
   `PATH`, and AppImages in the index. Flatpak terminals are skipped, because
   the sandbox can't see the host's `nu`.
@@ -621,9 +621,9 @@ How each one starts:
 - Terminal and iTerm2 on macOS open a small `.command` script that changes to
   the folder and runs `nu`.
 - Ghostty on macOS opens a new window in the running app through AppleScript.
-  macOS asks once whether fff-Finder may control Ghostty. If Ghostty isn't
+  macOS asks once whether fffinder may control Ghostty. If Ghostty isn't
   running, or you decline, a new Ghostty instance starts with
-  `--working-directory`. fff-Finder avoids Ghostty's `-e` flag because Ghostty
+  `--working-directory`. fffinder avoids Ghostty's `-e` flag because Ghostty
   asks for confirmation every time it is used
   ([ghostty discussion #10203](https://github.com/ghostty-org/ghostty/discussions/10203)).
 - **Custom Command** runs your own command. `{dir}` becomes the folder and
@@ -637,7 +637,7 @@ and a notification says so. The choice is saved per operating system. See
 
 ## Choosing files for scripts
 
-`fff-Finder --pick [PATH] [--multiple] [--query TEXT]` opens a chooser window.
+`fffinder --pick [PATH] [--multiple] [--query TEXT]` opens a chooser window.
 The picker bar at the bottom explains what to do and has **Cancel** and
 **Choose** buttons. "Choose" becomes "Choose N Items" with several selected.
 
@@ -654,7 +654,7 @@ The picker bar at the bottom explains what to do and has **Cancel** and
 
 | Menu | Items |
 | --- | --- |
-| fff-Finder | Settings… (Cmd+,), Rescan Index, Quit fff-Finder (Cmd+Q) |
+| fffinder | Settings… (Cmd+,), Rescan Index, Quit fffinder (Cmd+Q) |
 | File | New Window (Cmd+N), New Folder, Open, Open in Editor, Quick Look, Rename…, Move to Trash, Close Window (Cmd+W) |
 | Edit | Undo, Redo, Cut, Copy, Paste (for text fields), Copy Path, Copy as Nushell List, Select All Items, Find, Filter with Nushell, Search Syntax… |
 | View | as Icons, as List, as Columns, as Gallery, Toggle Sidebar, Show/Hide Hidden Files, Toggle Light/Dark, Refresh |
@@ -786,7 +786,7 @@ opens Settings. Changes apply and save right away. **Done** closes it.
 ### Search locations
 
 "This Computer" searches these folders, and their indexes stay live while
-fff-Finder runs. Each row shows the folder and its file count, or "indexing…"
+fffinder runs. Each row shows the folder and its file count, or "indexing…"
 while it scans. The X button stops indexing that folder.
 
 - **Add Folder…** chooses another folder to index.
@@ -803,7 +803,7 @@ These are fff-search's options. Each change applies and saves right away.
 | Control | What it does | Saved as |
 | --- | --- | --- |
 | Follow symbolic links | Index what symbolic links point to. | `search.follow_symlinks` |
-| Watch folders for changes | Keep the indexes current while fff-Finder runs. Off, they update on Rescan. | `search.watch` |
+| Watch folders for changes | Keep the indexes current while fffinder runs. Off, they update on Rescan. | `search.watch` |
 | Rank recent git changes higher | In a git repository, files from the last 10 commits rank higher. | `search.git_recency` |
 | Index file contents | After scanning, index file contents so content searches skip non-matching files sooner. Uses more memory. | `search.content_index` |
 | Keep often-used files in memory | Load the most-opened files into memory for faster content search. | `search.preload_files` |
@@ -832,7 +832,7 @@ search, and a search on screen runs again.
 
 ### Nushell
 
-- The path of the `nu` in use, or a note that it wasn't found. fff-Finder
+- The path of the `nu` in use, or a note that it wasn't found. fffinder
   looks at the `nu_path` setting, `PATH`, and the usual install folders
   (`~/.cargo/bin`, `~/.local/bin`, Homebrew, `/usr/local/bin`, `/usr/bin`,
   and on Windows `Programs\nu\bin`).
@@ -860,7 +860,7 @@ defaults to 12, and is saved as `nu_font_size`.
 
 Settings live in `settings.json` in the settings folder (see
 [Files, folders, and environment variables](#files-folders-and-environment-variables)).
-fff-Finder writes it shortly after each change, through a temporary file so a
+fffinder writes it shortly after each change, through a temporary file so a
 crash never leaves it half written. Missing fields use their defaults, and a
 file that can't be read falls back to defaults.
 
@@ -884,7 +884,7 @@ file that can't be read falls back to defaults.
 | `ui_scale` | `1.0` | Text size for the whole window, 0.8 to 2.0 in steps of 0.1. It also multiplies `preview_font_size` and `nu_font_size`. |
 | `search` | see below | fff-search's options from [Settings › Search engine](#search-engine). |
 | `terminal` | none | The old single terminal command. It moves into `terminals` when the file is read. |
-| `nu_path` | none | Path to `nu`. When unset, fff-Finder searches `PATH` and the usual install folders. |
+| `nu_path` | none | Path to `nu`. When unset, fffinder searches `PATH` and the usual install folders. |
 | `last_folder` | none | The folder the next window opens at. |
 
 The `search` record:
@@ -921,18 +921,18 @@ Terminal), `xterm`, `windows-terminal`, `x-terminal-emulator`, and `console`
 your config:
 
 ```nu
-use /path/to/fff-Finder/nu/fff.nu *
+use /path/to/fffinder/nu/fff.nu *
 fff keybindings
 ```
 
-Most commands ask the running fff-Finder over its [control
+Most commands ask the running fffinder over its [control
 socket](#the-control-socket), so nothing is scanned in the shell and results
 come from the window's live index. When no window is running they fail with
-"no fff-Finder window is running"; `fff gui` starts one. `fff show` starts it
+"no fffinder window is running"; `fff gui` starts one. `fff show` starts it
 for you.
 
-The module finds the app through `$env.FFF_FINDER_BIN`, then `PATH`, then
-`/Applications/fff-Finder.app` and `~/Applications/fff-Finder.app`, then a
+The module finds the app through `$env.FFFINDER_BIN`, then `PATH`, then
+`/Applications/fffinder.app` and `~/Applications/fffinder.app`, then a
 release or debug build in the repository.
 
 | Command | What it does |
@@ -958,10 +958,10 @@ release or debug build in the repository.
 The control socket is experimental. Its endpoints may change between
 versions.
 
-A running fff-Finder answers requests about its index, and requests to show
+A running fffinder answers requests about its index, and requests to show
 things, over a local connection:
 
-- macOS and Linux: a Unix socket at `run/fff-Finder.sock` in the data folder,
+- macOS and Linux: a Unix socket at `run/fffinder.sock` in the data folder,
   readable only by you.
 - Windows: `127.0.0.1` on a random port, with a random token required on every
   request.
@@ -970,20 +970,20 @@ things, over a local connection:
 plain HTTP with JSON, so Nushell can call them directly:
 
 ```nu
-let sock = ($nu.data-dir | path dirname | path join fff-Finder run fff-Finder.sock)
+let sock = ($nu.data-dir | path dirname | path join fffinder run fffinder.sock)
 http get --unix-socket $sock 'http://localhost/v1/find?query=readme&limit=5'
 ```
 
 [protocol.md](protocol.md) documents every endpoint: status, find, files, dirs,
-search, watch, selection, show, and open. A second launch of fff-Finder uses
+search, watch, selection, show, and open. A second launch of fffinder uses
 `POST /v1/open` to hand off to the running copy.
 
 ## Files, folders, and environment variables
 
 | Folder | macOS | Linux | Windows |
 | --- | --- | --- | --- |
-| Settings | `~/Library/Application Support/fff-Finder` | `~/.config/fff-Finder` | `%APPDATA%\fff-Finder` |
-| Data | `~/Library/Application Support/fff-Finder` | `$XDG_DATA_HOME/fff-Finder`, else `~/.local/share/fff-Finder` | `%LOCALAPPDATA%\fff-Finder` |
+| Settings | `~/Library/Application Support/fffinder` | `~/.config/fffinder` | `%APPDATA%\fffinder` |
+| Data | `~/Library/Application Support/fffinder` | `$XDG_DATA_HOME/fffinder`, else `~/.local/share/fffinder` | `%LOCALAPPDATA%\fffinder` |
 
 The settings folder holds `settings.json` and `actions.nu`. The data folder
 holds:
@@ -997,23 +997,21 @@ holds:
 
 | Variable | Effect |
 | --- | --- |
-| `FFF_FINDER_CONFIG_DIR` | Use another settings folder. |
-| `FFF_FINDER_DATA_DIR` | Use another data folder, for the app and for the `fff` module. |
-| `FFF_FINDER_WATCHDOG=1` | When the window stops responding for three seconds, save every thread's stack to `hang-<time>.txt` in the data folder (with `sample` on macOS) and print where. Other systems print the process ID to attach a debugger to. |
-| `FFF_FINDER_BIN` | Where the `fff` module finds the app. |
-| `FFF_FINDER_SOFTWARE_RENDERING` | On Linux, `1` draws with Mesa's software renderers and skips the GPU drivers, like `--software-rendering`, and `0` never does, even with no GPU device. See [Without a GPU](#without-a-gpu-wsl2-and-virtual-machines). |
+| `FFFINDER_CONFIG_DIR` | Use another settings folder. |
+| `FFFINDER_DATA_DIR` | Use another data folder, for the app and for the `fff` module. |
+| `FFFINDER_WATCHDOG=1` | When the window stops responding for three seconds, save every thread's stack to `hang-<time>.txt` in the data folder (with `sample` on macOS) and print where. Other systems print the process ID to attach a debugger to. |
+| `FFFINDER_BIN` | Where the `fff` module finds the app. |
+| `FFFINDER_SOFTWARE_RENDERING` | On Linux, `1` draws with Mesa's software renderers and skips the GPU drivers, like `--software-rendering`, and `0` never does, even with no GPU device. See [Without a GPU](#without-a-gpu-wsl2-and-virtual-machines). |
 | `TERMINAL` | On Linux, the terminal Automatic prefers. |
 
-The older `FFFFINDER_CONFIG_DIR`, `FFFFINDER_DATA_DIR`, and
-`FFFFINDER_WATCHDOG` names still work.
-
-Before the rename, the app stored its files in folders named `fffFinder`. The
-first time fff-Finder starts, it moves them to the new `fff-Finder` folders,
-unless you set the folder variables above.
+The app was called fff-Finder, and before that fffFinder. The variables still
+work with those prefixes, `FFF_FINDER_` and `FFFFINDER_`. The first time
+fffinder starts, it moves its folders from the old names to `fffinder`, unless
+you set the folder variables above.
 
 ## Appearance
 
-fff-Finder has light and dark themes, chosen in Settings or switched with
+fffinder has light and dark themes, chosen in Settings or switched with
 Cmd+Shift+D. With System, it follows the operating system as it changes.
 
 On macOS it looks like Finder:
@@ -1023,17 +1021,16 @@ On macOS it looks like Finder:
   instead of making the window wait.
 - The sidebar uses Finder's sidebar icons, tinted with the accent color.
 - The colors were measured from macOS's own light and dark appearances.
-- The accent and selection colors follow System Settings. fff-Finder reads
+- The accent and selection colors follow System Settings. fffinder reads
   them when it starts, so restart it after changing them.
 
-Linux and Windows use the same colors with fff-Finder's own icons.
+Linux and Windows use the same colors with fffinder's own icons.
 
 ## Names
 
-The app, its bundle, and its crates are named fff-Finder: the packages are
-`fff-Finder` and `fff-Finder-core`, and Rust code refers to them as
-`fff_Finder` and `fff_Finder_core`, because Rust identifiers can't contain
-`-`. Environment variables stay uppercase, as `FFF_FINDER_*`.
+The app, its bundle, and its packages are named fffinder, all lowercase: the
+packages are `fffinder` and `fffinder-core`, which Rust code calls `fffinder`
+and `fffinder_core`. Environment variables are uppercase, as `FFFINDER_*`.
 
 ## Building
 
@@ -1065,7 +1062,7 @@ sudo pacman -S --needed base-devel clang fontconfig wayland libxkbcommon-x11 lib
   libxcb openssl zstd vulkan-icd-loader
 ```
 
-To run fff-Finder you also need a Vulkan or OpenGL driver. Mesa's drivers
+To run fffinder you also need a Vulkan or OpenGL driver. Mesa's drivers
 (`mesa-vulkan-drivers` on Debian, Ubuntu, and Fedora; `vulkan-radeon` or
 `vulkan-intel` on Arch) cover AMD and Intel GPUs, and NVIDIA's driver brings
 its own. Desktop installs usually have one already.
@@ -1075,17 +1072,17 @@ its own. Desktop installs usually have one already.
 Install the Visual Studio 2022 Build Tools with the "Desktop development with
 C++" workload, which includes the MSVC compiler and the Windows SDK. The build
 uses the SDK's resource compiler, `rc.exe`, to put the app icon into
-`fff-Finder.exe`, so Explorer, the taskbar, and the title bar show it.
+`fffinder.exe`, so Explorer, the taskbar, and the title bar show it.
 
 ### Scripts
 
 | Script | What it does |
 | --- | --- |
 | `scripts/build.nu` | Builds the workspace. `--debug` skips optimizations, `--test` runs the tests, and `--lint` runs clippy. |
-| `scripts/install.nu` | Builds a release and copies `fff-Finder` to `~/.cargo/bin`, or to `--dest`. |
+| `scripts/install.nu` | Builds a release and copies `fffinder` to `~/.cargo/bin`, or to `--dest`. |
 | `scripts/bundle.nu` | Packages the app into `dist/` for this platform. `--skip-build` packages the last release build, and `--install` installs the Linux desktop entry. |
 | `scripts/screenshots.nu` | Renders `docs/images` (macOS). |
-| `scripts/windows-icon.nu` | Renders `assets/app-icon.svg` into `assets/windows/fff-Finder.ico`, the icon the Windows build embeds (macOS). Run it after changing the SVG. |
+| `scripts/windows-icon.nu` | Renders `assets/app-icon.svg` into `assets/windows/fffinder.ico`, the icon the Windows build embeds (macOS). Run it after changing the SVG. |
 
 The scripts ask Cargo where it builds, so `CARGO_TARGET_DIR` and
 `build.target-dir` in a Cargo config work. When the app isn't installed, the
@@ -1093,7 +1090,7 @@ The scripts ask Cargo where it builds, so `CARGO_TARGET_DIR` and
 
 ### Without a GPU (WSL2 and virtual machines)
 
-On Linux, fff-Finder draws with the first graphics driver that works, trying
+On Linux, fffinder draws with the first graphics driver that works, trying
 GPUs before Mesa's software renderers (llvmpipe for OpenGL, lavapipe for
 Vulkan), which run on the CPU. With no usable GPU, as in WSL2 without GPU
 support and in many virtual machines, it ends up drawing in software.
@@ -1104,23 +1101,23 @@ as `libEGL warning: failed to get driver for name fd -1`,
 `MESA: error: ZINK: failed to choose pdev`. If the window opens and draws,
 they're harmless.
 
-fff-Finder goes straight to the software renderers, skipping the hardware
+fffinder goes straight to the software renderers, skipping the hardware
 drivers and their warnings, when:
 
-- you pass `--software-rendering`, or set `FFF_FINDER_SOFTWARE_RENDERING=1`.
+- you pass `--software-rendering`, or set `FFFINDER_SOFTWARE_RENDERING=1`.
 - the system shows no GPU device at all: nothing in `/dev/dri`, no `/dev/dxg`
   (WSL's GPU), and no `/dev/nvidia*`. No hardware driver could work then.
-  `FFF_FINDER_SOFTWARE_RENDERING=0` turns this off.
+  `FFFINDER_SOFTWARE_RENDERING=0` turns this off.
 
 It doesn't switch on its own just because it runs in WSL2 or a virtual
 machine, since many of those have a working GPU: WSLg passes the Windows GPU
 through `/dev/dxg`, and virtual machines often have a 3D-capable virtual GPU.
-When a GPU device exists but no driver for it works, fff-Finder falls back to
+When a GPU device exists but no driver for it works, fffinder falls back to
 software by itself and prints one line on stderr that says so and suggests
 the flag:
 
 ```text
-fff-Finder: no GPU driver worked; drawing in software with llvmpipe (…). Pass --software-rendering …
+fffinder: no GPU driver worked; drawing in software with llvmpipe (…). Pass --software-rendering …
 ```
 
 Software rendering sets Mesa's `LIBGL_ALWAYS_SOFTWARE=1` and the Vulkan
@@ -1128,7 +1125,7 @@ loader's `VK_LOADER_DRIVERS_SELECT=*lvp*` (Vulkan loader 1.3.234 or newer),
 unless you've set them yourself. In WSLg that also stops it from using the
 Windows GPU. It needs Mesa's software drivers: `libgl1-mesa-dri` and `mesa-vulkan-drivers` on
 Debian and Ubuntu. To make it stick for the desktop entry, change its `Exec`
-line to `fff-Finder --software-rendering %f`.
+line to `fffinder --software-rendering %f`.
 
 ## Development
 
@@ -1184,7 +1181,7 @@ cargo run --example terminals -- --verify
 
 ### Hangs
 
-If the window ever stops responding, run it with `FFF_FINDER_WATCHDOG=1`. After
+If the window ever stops responding, run it with `FFFINDER_WATCHDOG=1`. After
 three seconds without a response it saves every thread's stack to
 `hang-<time>.txt` in the data folder and prints the path. Other platforms print
 the process ID to attach a debugger to.

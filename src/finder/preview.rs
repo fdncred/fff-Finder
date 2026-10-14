@@ -11,8 +11,8 @@ use crate::actions::{
 use crate::nushell::{self, NuOutput};
 use crate::theme::palette;
 use crate::theme::ui;
-use fff_Finder_core::config::{DEFAULT_PREVIEW_FONT_SIZE, FONT_SIZE_RANGE};
-use fff_Finder_core::{FileEntry, FileKind, ViewMode, format};
+use fffinder_core::config::{DEFAULT_PREVIEW_FONT_SIZE, FONT_SIZE_RANGE};
+use fffinder_core::{FileEntry, FileKind, ViewMode, format};
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::dialog::DialogFooter;
 use gpui_kit::component::scroll::ScrollableElement as _;
@@ -695,7 +695,7 @@ mod tests {
     // Not `super::*`: GPUI's `test` attribute would replace the standard one.
     use super::{Preview, load_preview};
     use crate::nushell;
-    use fff_Finder_core::FileEntry;
+    use fffinder_core::FileEntry;
 
     /// Runs only where `nu` is installed.
     #[test]

@@ -74,7 +74,7 @@ pub const CUSTOM: &str = "custom";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Launch {
     /// macOS: `open -na <bundle> --args <args>`, so the terminal starts as
-    /// its own app instead of as a child of fff-Finder.
+    /// its own app instead of as a child of fffinder.
     OpenApp { bundle: PathBuf, args: Vec<String> },
     /// macOS: open a `.command` script with the app. The script changes to
     /// the folder and runs `nu`. For Terminal, iTerm2, and terminals known
@@ -1100,7 +1100,7 @@ impl Terminal {
             Launch::CommandFile { bundle } => {
                 let n = SCRIPTS.fetch_add(1, Ordering::Relaxed);
                 let path = std::env::temp_dir()
-                    .join(format!("fff-Finder-nu-{}-{n}.command", std::process::id()));
+                    .join(format!("fffinder-nu-{}-{n}.command", std::process::id()));
                 let mut command = run.shell_words();
                 if run.login && run.args.is_empty() {
                     command.push_str(" --login");

@@ -1,4 +1,4 @@
-//! Talking to a running fff-Finder: used to hand a second launch to the
+//! Talking to a running fffinder: used to hand a second launch to the
 //! window that is already open, and by tests.
 
 use std::io::{self, Read, Write};

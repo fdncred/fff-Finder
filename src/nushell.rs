@@ -1,9 +1,9 @@
 //! Nushell integration that doesn't need GPUI: locating `nu`, running a
 //! pipeline over the selected files, previewing structured files with
 //! `open`, and NUON formatting. Terminals live in
-//! `fff_Finder_core::terminals`.
+//! `fffinder_core::terminals`.
 
-use fff_Finder_core::{FileEntry, format};
+use fffinder_core::{FileEntry, format};
 use serde_json::Value as Json;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};

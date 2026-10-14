@@ -17,9 +17,9 @@ use crate::actions::*;
 use crate::model::{History, Location, Selection};
 use crate::nushell::{self, NuRun};
 use crate::theme::ui;
-use fff_Finder_core::places::{self, Place};
-use fff_Finder_core::terminals::{self, CUSTOM, Terminal, TerminalSetting};
-use fff_Finder_core::{
+use fffinder_core::places::{self, Place};
+use fffinder_core::terminals::{self, CUSTOM, Terminal, TerminalSetting};
+use fffinder_core::{
     Config, Engine, FileEntry, GrepRequest, KindFilter, RootStatus, SearchRequest, SortKey,
     SortOrder, ViewMode, format, listing,
 };
@@ -59,7 +59,7 @@ pub struct PickerOptions {
     pub multiple: bool,
 }
 
-/// What a terminal opened by fff-Finder runs.
+/// What a terminal opened by fffinder runs.
 #[derive(Debug, Clone)]
 pub(super) enum InTerminal {
     Nu,
@@ -294,7 +294,7 @@ impl Finder {
                 }
             }),
             cx.observe_window_appearance(window, |this, window, cx| {
-                if this.config.appearance == fff_Finder_core::Appearance::System {
+                if this.config.appearance == fffinder_core::Appearance::System {
                     crate::theme::apply(this.config.appearance, Some(window), cx);
                 }
             }),
@@ -1061,7 +1061,7 @@ impl Finder {
     /// shape the index rebuild it, off the UI thread; the search reruns.
     pub fn update_search_settings(
         &mut self,
-        edit: impl FnOnce(&mut fff_Finder_core::SearchSettings),
+        edit: impl FnOnce(&mut fffinder_core::SearchSettings),
         cx: &mut Context<Self>,
     ) {
         edit(&mut self.config.search);
@@ -1470,7 +1470,7 @@ impl Finder {
 
     /// Change the preview text size; `None` goes back to the default.
     pub fn set_preview_font_size(&mut self, size: Option<f32>, cx: &mut Context<Self>) {
-        use fff_Finder_core::config::{DEFAULT_PREVIEW_FONT_SIZE, FONT_SIZE_RANGE, in_range};
+        use fffinder_core::config::{DEFAULT_PREVIEW_FONT_SIZE, FONT_SIZE_RANGE, in_range};
         let size = size.unwrap_or(DEFAULT_PREVIEW_FONT_SIZE);
         self.config.preview_font_size = in_range(size, FONT_SIZE_RANGE, DEFAULT_PREVIEW_FONT_SIZE);
         self.schedule_save(cx);
@@ -1479,7 +1479,7 @@ impl Finder {
 
     /// Change the Nushell panel's text size; `None` goes back to the default.
     pub fn set_nu_font_size(&mut self, size: Option<f32>, cx: &mut Context<Self>) {
-        use fff_Finder_core::config::{DEFAULT_NU_FONT_SIZE, FONT_SIZE_RANGE, in_range};
+        use fffinder_core::config::{DEFAULT_NU_FONT_SIZE, FONT_SIZE_RANGE, in_range};
         let size = size.unwrap_or(DEFAULT_NU_FONT_SIZE);
         self.config.nu_font_size = in_range(size, FONT_SIZE_RANGE, DEFAULT_NU_FONT_SIZE);
         self.schedule_save(cx);
@@ -1488,7 +1488,7 @@ impl Finder {
 
     /// Scale all text and controls (Settings › Text size); `None` resets it.
     pub fn set_ui_scale(&mut self, scale: Option<f32>, cx: &mut Context<Self>) {
-        use fff_Finder_core::config::{UI_SCALE_RANGE, in_range};
+        use fffinder_core::config::{UI_SCALE_RANGE, in_range};
         // Whole tenths, so steps land on 90%, 100%, 110%, …
         let scale = (in_range(scale.unwrap_or(1.0), UI_SCALE_RANGE, 1.0) * 10.).round() / 10.;
         self.config.ui_scale = scale;
@@ -1521,7 +1521,7 @@ impl Finder {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        use fff_Finder_core::Appearance;
+        use fffinder_core::Appearance;
         self.config.appearance = if cx.theme().is_dark() {
             Appearance::Light
         } else {
@@ -1533,7 +1533,7 @@ impl Finder {
 
     pub fn set_appearance(
         &mut self,
-        appearance: fff_Finder_core::Appearance,
+        appearance: fffinder_core::Appearance,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {

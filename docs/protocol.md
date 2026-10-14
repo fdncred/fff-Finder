@@ -1,6 +1,6 @@
-# fff-Finder control protocol, version 1
+# fffinder control protocol, version 1
 
-A running fff-Finder window keeps a live fff-search index of every search
+A running fffinder window keeps a live fff-search index of every search
 location. It answers queries about that index, and requests to show things,
 over a local connection, so shells and tools search the same index the window
 uses instead of building their own. `nu/fff.nu` is the bundled client.
@@ -10,20 +10,20 @@ The protocol is experimental. Endpoints may change between versions.
 ## Finding the server
 
 The server describes itself in `server.json` inside the `run` folder of
-fff-Finder's data folder:
+fffinder's data folder:
 
 | System | Data folder |
 |---|---|
-| macOS | `~/Library/Application Support/fff-Finder` |
-| Linux | `$XDG_DATA_HOME/fff-Finder`, else `~/.local/share/fff-Finder` |
-| Windows | `%LOCALAPPDATA%\fff-Finder` |
+| macOS | `~/Library/Application Support/fffinder` |
+| Linux | `$XDG_DATA_HOME/fffinder`, else `~/.local/share/fffinder` |
+| Windows | `%LOCALAPPDATA%\fffinder` |
 
-`FFF_FINDER_DATA_DIR` replaces the data folder for both the app and clients.
+`FFFINDER_DATA_DIR` replaces the data folder for both the app and clients.
 
 On macOS and Linux the server listens on a Unix socket:
 
 ```json
-{"protocol": 1, "pid": 4242, "socket": "/Users/me/Library/Application Support/fff-Finder/run/fff-Finder.sock"}
+{"protocol": 1, "pid": 4242, "socket": "/Users/me/Library/Application Support/fffinder/run/fffinder.sock"}
 ```
 
 On Windows it listens on the loopback interface, and every request must carry
@@ -35,7 +35,7 @@ the token as `Authorization: Bearer <token>`:
 
 The `run` folder and the socket are readable by the owner only. A missing
 file, or a connection that fails, means no window is running. Only the main
-window process serves; `fff-Finder --pick` never does. When fff-Finder starts
+window process serves; `fffinder --pick` never does. When fffinder starts
 and a live server already answers, the new process sends `POST /v1/open` with
 its arguments and exits, so there is one app and one index.
 
@@ -61,7 +61,7 @@ is in bytes and `modified` is Unix seconds.
 
 ```json
 {
-  "app": "fff-Finder", "version": "0.2.0", "protocol": 1, "pid": 4242,
+  "app": "fffinder", "version": "0.2.0", "protocol": 1, "pid": 4242,
   "watch": true, "scanning": false, "files": 672643, "dirs": 91420,
   "roots": [
     {"path": "/Users/me", "scanning": false, "files": 264824, "dirs": 40122, "git_repo": false}
@@ -75,7 +75,7 @@ Fuzzy search by name, ranked the way the window ranks results.
 
 | Parameter | Meaning |
 |---|---|
-| `query` | Search text, with fff-Finder's search syntax. Required. |
+| `query` | Search text, with fffinder's search syntax. Required. |
 | `type` | `all` (default), `file`, or `dir`. |
 | `kind` | `document`, `image`, `movie`, `audio`, `code`, `archive`, or `folder`. |
 | `scope` | Only results inside this folder. |

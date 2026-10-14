@@ -7,8 +7,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use fff_Finder::server::{self, Endpoint, Options, UiRequest, client};
-use fff_Finder_core::{Engine, EngineOptions};
+use fffinder::server::{self, Endpoint, Options, UiRequest, client};
+use fffinder_core::{Engine, EngineOptions};
 use serde_json::{Value, json};
 
 struct Fixture {

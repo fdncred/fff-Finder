@@ -5,7 +5,7 @@ use crate::actions::*;
 use crate::model::Location;
 use crate::theme::palette;
 use crate::theme::ui;
-use fff_Finder_core::{KindFilter, ViewMode, places};
+use fffinder_core::{KindFilter, ViewMode, places};
 use gpui_kit::TestSupportExt as _;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
@@ -52,7 +52,7 @@ impl Finder {
 
         let folder_name = self
             .current_folder()
-            .map(fff_Finder_core::entry::display_name);
+            .map(fffinder_core::entry::display_name);
         let scope = self.scope;
         let contents = self.search_contents;
         let kind = self.config.kind_filter;

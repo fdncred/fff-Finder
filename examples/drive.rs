@@ -12,9 +12,9 @@
 //! clicks an element by ID, `type:<text>` types into the focused field, and
 //! `wait:<ms>` pauses.
 
-use fff_Finder::finder::AppState;
-use fff_Finder::model::Location;
-use fff_Finder_core::{Config, Engine, EngineOptions};
+use fffinder::finder::AppState;
+use fffinder::model::Location;
+use fffinder_core::{Config, Engine, EngineOptions};
 use gpui_kit::component::WindowExt as _;
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::*;
@@ -25,20 +25,20 @@ fn main() {
     let config = Config::load();
     let engine = Engine::new(EngineOptions {
         roots: config.search_roots.clone(),
-        db_dir: Some(fff_Finder_core::config::data_dir().join("gui")),
+        db_dir: Some(fffinder_core::config::data_dir().join("gui")),
         watch: true,
         search: Default::default(),
     });
-    let nu = fff_Finder::nushell::find_nu(config.nu_path.as_deref());
-    let start = fff_Finder::start_location(None, &config);
+    let nu = fffinder::nushell::find_nu(config.nu_path.as_deref());
+    let start = fffinder::start_location(None, &config);
 
     gpui_kit::application()
-        .with_assets(fff_Finder::assets::AppAssets)
+        .with_assets(fffinder::assets::AppAssets)
         .run(move |cx: &mut App| {
-            fff_Finder::init(cx, AppState { engine, nu, terminals: None }, config.appearance);
-            fff_Finder::watchdog::start(cx);
-            cx.on_action(|_: &fff_Finder::actions::Quit, cx: &mut App| cx.quit());
-            let Some((handle, view)) = fff_Finder::open_window(start, None, None, cx) else {
+            fffinder::init(cx, AppState { engine, nu, terminals: None }, config.appearance);
+            fffinder::watchdog::start(cx);
+            cx.on_action(|_: &fffinder::actions::Quit, cx: &mut App| cx.quit());
+            let Some((handle, view)) = fffinder::open_window(start, None, None, cx) else {
                 return;
             };
             view.update(cx, |f, _| f.set_persist(false));

@@ -135,11 +135,11 @@ pub fn bind_keys(cx: &mut App) {
 
 pub fn set_menus(cx: &mut App) {
     cx.set_menus([
-        Menu::new("fff-Finder").items([
+        Menu::new("fffinder").items([
             MenuItem::action("Settings…", ShowSettings),
             MenuItem::action("Rescan Index", Rescan),
             MenuItem::separator(),
-            MenuItem::action("Quit fff-Finder", Quit),
+            MenuItem::action("Quit fffinder", Quit),
         ]),
         Menu::new("File").items([
             MenuItem::action("New Window", NewWindow),

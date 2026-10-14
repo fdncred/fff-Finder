@@ -3,7 +3,7 @@
 //! [`Recorder`] instead, so nothing opens on the machine running them.
 //! (GPUI's test platform doesn't implement the first two at all.)
 
-use fff_Finder_core::terminals::Plan;
+use fffinder_core::terminals::Plan;
 use gpui_kit::{App, AppContext as _, Global, Task};
 use std::cell::RefCell;
 use std::collections::HashSet;

@@ -1,9 +1,6 @@
-//! fff-Finder: a Finder-style file search app on fff-search and GPUI Kit.
+//! fffinder: a Finder-style file search app on fff-search and GPUI Kit.
 //! The binary is a thin wrapper around [`run`]; the library also backs the
 //! headless screenshot tool in `examples/screenshot.rs`.
-
-// The library is named `fff_Finder`, after the app, which isn't snake case.
-#![allow(non_snake_case)]
 
 pub mod actions;
 pub mod ansi;
@@ -25,7 +22,7 @@ pub mod watchdog;
 
 use crate::finder::{AppState, Finder, PickerOptions};
 use crate::model::Location;
-use fff_Finder_core::{Config, Engine, EngineOptions, config};
+use fffinder_core::{Config, Engine, EngineOptions, config};
 use gpui_kit::*;
 use std::path::PathBuf;
 
@@ -214,7 +211,7 @@ fn handle_request(request: server::UiRequest, cx: &mut App) {
 }
 
 /// Kit, theme, shared state, key bindings, and menus.
-pub fn init(cx: &mut App, state: AppState, appearance: fff_Finder_core::Appearance) {
+pub fn init(cx: &mut App, state: AppState, appearance: fffinder_core::Appearance) {
     gpui_kit::init(cx);
     theme::install(cx);
     theme::apply(appearance, None, cx);
@@ -256,7 +253,7 @@ pub fn window_options(title: SharedString, cx: &App) -> WindowOptions {
             traffic_light_position: mac.then(|| point(px(18.), px(18.))),
         }),
         app_owns_titlebar_drag: mac,
-        app_id: Some("fff-Finder".into()),
+        app_id: Some("fffinder".into()),
         ..Default::default()
     }
 }
@@ -270,7 +267,7 @@ pub fn open_window(
     let title: SharedString = match picker {
         Some(PickerOptions { multiple: true }) => "Choose Files".into(),
         Some(_) => "Choose a File".into(),
-        None => "fff-Finder".into(),
+        None => "fffinder".into(),
     };
     let options = window_options(title.clone(), cx);
     let result = gpui_kit::open_window(options, cx, move |window, cx| {
@@ -292,7 +289,7 @@ pub fn open_window(
             Some((handle, view))
         }
         Err(err) => {
-            eprintln!("fff-Finder: could not open a window: {err}");
+            eprintln!("fffinder: could not open a window: {err}");
             None
         }
     }

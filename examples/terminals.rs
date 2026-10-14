@@ -13,8 +13,8 @@
 //! iTerm2 keep their window open afterwards, so they are checked only when
 //! named.
 
-use fff_Finder_core::terminals::{self, Launch, Terminal};
-use fff_Finder_core::{Config, Engine, EngineOptions};
+use fffinder_core::terminals::{self, Launch, Terminal};
+use fffinder_core::{Config, Engine, EngineOptions};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 

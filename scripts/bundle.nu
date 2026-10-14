@@ -1,10 +1,10 @@
 #!/usr/bin/env nu
-# Package fff-Finder for the current platform into dist/.
+# Package fffinder for the current platform into dist/.
 #
-#   macOS:   dist/fff-Finder.app (fff.nu inside Contents/Resources)
-#   Linux:   dist/fff-Finder-<version>-linux-<arch>/ with a .desktop file
+#   macOS:   dist/fffinder.app (fff.nu inside Contents/Resources)
+#   Linux:   dist/fffinder-<version>-linux-<arch>/ with a .desktop file
 #            (--install copies it into ~/.local)
-#   Windows: dist/fff-Finder-<version>-windows-<arch>.zip
+#   Windows: dist/fffinder-<version>-windows-<arch>.zip
 
 use common.nu *
 
@@ -24,13 +24,13 @@ def main [
 }
 
 def bundle-macos [root: path, target: path, dist: path]: nothing -> path {
-    let app = $dist | path join fff-Finder.app
+    let app = $dist | path join fffinder.app
     rm --recursive --force $app
     let contents = $app | path join Contents
     mkdir ($contents | path join MacOS) ($contents | path join Resources)
-    cp ($target | path join fff-Finder) ($contents | path join MacOS)
+    cp ($target | path join fffinder) ($contents | path join MacOS)
     cp ($root | path join nu fff.nu) ($contents | path join Resources)
-    make-icns ($root | path join assets app-icon.svg) ($contents | path join Resources fff-Finder.icns)
+    make-icns ($root | path join assets app-icon.svg) ($contents | path join Resources fffinder.icns)
     info-plist (version) | save --force ($contents | path join Info.plist)
     # Ad-hoc signature so Gatekeeper and Full Disk Access can track the app.
     ^codesign --force --deep --sign - $app
@@ -42,7 +42,7 @@ def bundle-macos [root: path, target: path, dist: path]: nothing -> path {
 def make-icns [svg: path, out: path] {
     let work = mktemp --directory
     let png = render-svg $svg $work
-    let iconset = $work | path join fff-Finder.iconset
+    let iconset = $work | path join fffinder.iconset
     mkdir $iconset
     for size in [16 32 128 256 512] {
         ^sips -z $size $size $png --out ($iconset | path join $'icon_($size)x($size).png') | ignore
@@ -58,11 +58,11 @@ def info-plist [version: string]: nothing -> string {
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>fff-Finder</string>
-  <key>CFBundleDisplayName</key><string>fff-Finder</string>
-  <key>CFBundleIdentifier</key><string>com.nushell.fff-Finder</string>
-  <key>CFBundleExecutable</key><string>fff-Finder</string>
-  <key>CFBundleIconFile</key><string>fff-Finder</string>
+  <key>CFBundleName</key><string>fffinder</string>
+  <key>CFBundleDisplayName</key><string>fffinder</string>
+  <key>CFBundleIdentifier</key><string>com.nushell.fffinder</string>
+  <key>CFBundleExecutable</key><string>fffinder</string>
+  <key>CFBundleIconFile</key><string>fffinder</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>($version)</string>
   <key>CFBundleVersion</key><string>($version)</string>
@@ -70,50 +70,50 @@ def info-plist [version: string]: nothing -> string {
   <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
-  <key>NSAppleEventsUsageDescription</key><string>fff-Finder asks your terminal, such as Ghostty, to open a window running Nushell in a folder.</string>
+  <key>NSAppleEventsUsageDescription</key><string>fffinder asks your terminal, such as Ghostty, to open a window running Nushell in a folder.</string>
 </dict>
 </plist>
 '
 }
 
 def bundle-linux [root: path, target: path, dist: path, --install]: nothing -> path {
-    let name = $'fff-Finder-(version)-linux-($nu.os-info.arch)'
+    let name = $'fffinder-(version)-linux-($nu.os-info.arch)'
     let out = $dist | path join $name
     rm --recursive --force $out
     mkdir $out
-    cp ($target | path join fff-Finder) ($root | path join nu fff.nu) $out
-    cp ($root | path join assets app-icon.svg) ($out | path join fff-Finder.svg)
+    cp ($target | path join fffinder) ($root | path join nu fff.nu) $out
+    cp ($root | path join assets app-icon.svg) ($out | path join fffinder.svg)
     let desktop = [
         '[Desktop Entry]'
         'Type=Application'
-        'Name=fff-Finder'
+        'Name=fffinder'
         'Comment=Fast fuzzy file search'
-        'Exec=fff-Finder %f'
-        'Icon=fff-Finder'
+        'Exec=fffinder %f'
+        'Icon=fffinder'
         'Terminal=false'
         'Categories=Utility;FileTools;FileManager;'
         'Keywords=find;search;files;fuzzy;'
-        'StartupWMClass=fff-Finder'
+        'StartupWMClass=fffinder'
     ] | str join (char nl)
-    $desktop | save --force ($out | path join fff-Finder.desktop)
+    $desktop | save --force ($out | path join fffinder.desktop)
     if $install {
         let share = $nu.home-dir | path join .local share
         let bin = $nu.home-dir | path join .local bin
         mkdir ($share | path join applications) ($share | path join icons hicolor scalable apps) $bin
-        cp ($out | path join fff-Finder) $bin
-        cp ($out | path join fff-Finder.svg) ($share | path join icons hicolor scalable apps)
-        cp ($out | path join fff-Finder.desktop) ($share | path join applications)
+        cp ($out | path join fffinder) $bin
+        cp ($out | path join fffinder.svg) ($share | path join icons hicolor scalable apps)
+        cp ($out | path join fffinder.desktop) ($share | path join applications)
         print $"Installed to ($bin) and the desktop menu."
     }
     $out
 }
 
 def bundle-windows [root: path, target: path, dist: path]: nothing -> path {
-    let name = $'fff-Finder-(version)-windows-($nu.os-info.arch)'
+    let name = $'fffinder-(version)-windows-($nu.os-info.arch)'
     let out = $dist | path join $name
     rm --recursive --force $out
     mkdir $out
-    cp ($target | path join fff-Finder.exe) ($root | path join nu fff.nu) $out
+    cp ($target | path join fffinder.exe) ($root | path join nu fff.nu) $out
     cp ($root | path join README.md) $out
     let zip = $dist | path join $'($name).zip'
     rm --force $zip

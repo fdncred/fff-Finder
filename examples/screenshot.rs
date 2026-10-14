@@ -1,4 +1,4 @@
-//! Render the fff-Finder window headlessly (Metal, macOS) and save a PNG.
+//! Render the fffinder window headlessly (Metal, macOS) and save a PNG.
 //!
 //! ```text
 //! cargo run --example screenshot -- out.png [--dir PATH] [--view icons|list|columns|gallery]
@@ -6,10 +6,10 @@
 //!     [--nu PIPELINE] [--size 1100x700] [--no-sidebar] [--settings]
 //! ```
 
-use fff_Finder::finder::{AppState, Finder};
-use fff_Finder::model::Location;
-use fff_Finder::{assets, nushell};
-use fff_Finder_core::{Appearance, Config, Engine, EngineOptions, ViewMode};
+use fffinder::finder::{AppState, Finder};
+use fffinder::model::Location;
+use fffinder::{assets, nushell};
+use fffinder_core::{Appearance, Config, Engine, EngineOptions, ViewMode};
 use gpui_kit::test::TestWindowExt as _;
 use gpui_kit::{
     AppContext as _, Bounds, HeadlessAppContext, WindowBounds, WindowOptions, px, size,
@@ -104,7 +104,7 @@ fn main() {
     );
     cx.allow_parking();
     cx.update(|cx| {
-        fff_Finder::init(
+        fffinder::init(
             cx,
             AppState {
                 engine,
@@ -153,7 +153,7 @@ fn main() {
             finder.set_sidebar_visible(o.sidebar, cx);
             finder.set_view_mode(o.view, cx);
             if o.scope_folder {
-                finder.set_scope(fff_Finder::finder::SearchScope::Folder, cx);
+                finder.set_scope(fffinder::finder::SearchScope::Folder, cx);
             }
             if let Some(query) = o.query.clone() {
                 finder.set_query(query, true, cx);
@@ -174,7 +174,7 @@ fn main() {
     if o.quick_look {
         cx.update_window(handle, |_, window, cx| {
             view.update(cx, |finder, cx| {
-                finder.quick_look(&fff_Finder::actions::QuickLook, window, cx)
+                finder.quick_look(&fffinder::actions::QuickLook, window, cx)
             });
         })
         .ok();
@@ -184,7 +184,7 @@ fn main() {
     if o.settings {
         cx.update_window(handle, |_, window, cx| {
             view.update(cx, |finder, cx| finder.focus_files(window, cx));
-            window.dispatch_action(Box::new(fff_Finder::actions::ShowSettings), cx);
+            window.dispatch_action(Box::new(fffinder::actions::ShowSettings), cx);
         })
         .ok();
         settle(&mut cx);

@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use fff_Finder_core::FileEntry;
+use fffinder_core::FileEntry;
 
 /// Colors as 0xRRGGBBAA.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,7 +35,7 @@ pub enum IconLookup {
 
 /// Where cached icon images live.
 fn icon_dir() -> PathBuf {
-    fff_Finder_core::config::data_dir().join("icons").join("v2")
+    fffinder_core::config::data_dir().join("icons").join("v2")
 }
 
 /// Drawing an app's icon the first time takes about 10ms, so a window of
@@ -138,7 +138,7 @@ pub fn icon_key(entry: &FileEntry) -> String {
     if entry.is_dir {
         "folder".into()
     } else if ext.is_empty() {
-        let program = entry.kind == fff_Finder_core::FileKind::Executable;
+        let program = entry.kind == fffinder_core::FileKind::Executable;
         format!("name-{:016x}", hash((entry.name.to_lowercase(), program)))
     } else {
         format!(
@@ -389,7 +389,7 @@ mod tests {
             is_dir,
             size: None,
             modified: None,
-            kind: fff_Finder_core::FileKind::Other,
+            kind: fffinder_core::FileKind::Other,
             hidden: false,
             is_symlink: false,
         }
@@ -398,7 +398,7 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn knows_which_files_have_an_app() {
-        let dir = std::env::temp_dir().join(format!("fff-Finder-apps-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("fffinder-apps-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let text = dir.join("notes.txt");
         std::fs::write(&text, "hi").unwrap();

@@ -1,4 +1,4 @@
-//! Command line: `fff-Finder [PATH] [--query TEXT] [--pick] [--multiple] [--detach]
+//! Command line: `fffinder [PATH] [--query TEXT] [--pick] [--multiple] [--detach]
 //! [--software-rendering]`.
 //!
 //! `--pick` turns the window into a chooser for scripts (used by `fff pick`):
@@ -20,9 +20,9 @@ pub struct Args {
 }
 
 pub const USAGE: &str = "\
-fff-Finder - fast Finder-style file search
+fffinder - fast Finder-style file search
 
-Usage: fff-Finder [PATH] [OPTIONS]
+Usage: fffinder [PATH] [OPTIONS]
 
 Arguments:
   [PATH]             Folder to open (default: last folder or home)

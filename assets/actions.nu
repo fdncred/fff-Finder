@@ -1,4 +1,4 @@
-# fff-Finder actions, written in Nushell.
+# fffinder actions, written in Nushell.
 #
 # Every command exported here appears when you right-click items, under
 # "Nushell Actions", and in the toolbar's Nushell menu. It receives the
@@ -7,7 +7,7 @@
 #   name, path, type ("file" or "dir"), kind, size (filesize), modified (datetime)
 #
 # What it returns shows in the Nushell panel. The comment above a command is
-# its tooltip. fff-Finder reloads this file when you save it.
+# its tooltip. fffinder reloads this file when you save it.
 
 # Count the lines in each selected text file.
 export def "count lines" []: table -> table {

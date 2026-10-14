@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
-use fff_Finder_core::{
+use fffinder_core::{
     Engine, GrepModeKind, GrepRequest, KindFilter, SearchRequest, config, entry::display_name,
 };
 use serde_json::{Value, json};
@@ -68,11 +68,11 @@ pub struct Options {
 
 impl Options {
     /// The app's: a Unix socket on macOS and Linux, TCP on Windows or when
-    /// `FFF_FINDER_SERVER_TCP` is set.
+    /// `FFFINDER_SERVER_TCP` is set.
     pub fn for_app() -> Options {
         Options {
             run_dir: run_dir(),
-            tcp: cfg!(windows) || std::env::var_os("FFF_FINDER_SERVER_TCP").is_some(),
+            tcp: cfg!(windows) || config::env_var("FFFINDER_SERVER_TCP").is_some(),
         }
     }
 }
@@ -116,7 +116,7 @@ pub fn start_with(
     if client::discover_in(&options.run_dir).is_some_and(|e| client::status(&e).is_ok()) {
         return Err(io::Error::new(
             io::ErrorKind::AddrInUse,
-            "another fff-Finder window is already serving",
+            "another fffinder window is already serving",
         ));
     }
     create_private_dir(&options.run_dir)?;
@@ -167,7 +167,7 @@ fn listen_unix(
 ) -> io::Result<Endpoint> {
     use std::os::unix::fs::PermissionsExt;
     use std::os::unix::net::UnixListener;
-    let path = run_dir.join("fff-Finder.sock");
+    let path = run_dir.join("fffinder.sock");
     // Nobody answered above, so a socket file left here is stale.
     let _ = std::fs::remove_file(&path);
     let listener = UnixListener::bind(&path)?;
@@ -632,7 +632,7 @@ fn open(request: &Request, ctx: &Context) -> Result<Answer, Failure> {
 }
 
 /// A row describing one item, as `/v1/selection` lists them.
-pub fn item_json(entry: &fff_Finder_core::FileEntry) -> Value {
+pub fn item_json(entry: &fffinder_core::FileEntry) -> Value {
     let mut row = json!({
         "path": entry.path,
         "name": display_name(&entry.path),

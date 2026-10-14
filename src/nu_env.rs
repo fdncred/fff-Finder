@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use fff_Finder_core::FileEntry;
+use fffinder_core::FileEntry;
 #[cfg(test)]
 use gpui_kit::Rgba;
 use gpui_kit::{
@@ -31,7 +31,7 @@ pub struct NuEnv {
 /// values go to a file instead of stdout.
 pub fn load(nu: &Path) -> Result<NuEnv, String> {
     let out = std::env::temp_dir().join(format!(
-        "fff-Finder-nu-env-{}-{}.json",
+        "fffinder-nu-env-{}-{}.json",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -188,7 +188,7 @@ pub fn name_style(colors: &LsColors, entry: &FileEntry) -> Option<NameStyle> {
         Indicator::SymbolicLink
     } else if entry.is_dir {
         Indicator::Directory
-    } else if entry.kind == fff_Finder_core::FileKind::Executable {
+    } else if entry.kind == fffinder_core::FileKind::Executable {
         Indicator::ExecutableFile
     } else {
         Indicator::RegularFile
@@ -261,7 +261,7 @@ mod tests {
             is_dir,
             size: None,
             modified: None,
-            kind: fff_Finder_core::FileKind::Other,
+            kind: fffinder_core::FileKind::Other,
             hidden: false,
             is_symlink: false,
         }

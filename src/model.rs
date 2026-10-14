@@ -28,7 +28,7 @@ impl Location {
 
     pub fn title(&self) -> String {
         match self {
-            Location::Folder(path) => fff_Finder_core::entry::display_name(path),
+            Location::Folder(path) => fffinder_core::entry::display_name(path),
             Location::Recents => "Recents".into(),
             Location::Results { title, .. } => title.clone(),
         }

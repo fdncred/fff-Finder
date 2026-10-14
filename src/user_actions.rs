@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use fff_Finder_core::config;
+use fffinder_core::config;
 use serde::Deserialize;
 
 /// The starters written to `actions.nu` the first time.
@@ -202,7 +202,7 @@ mod tests {
     #[test]
     fn starters_run() {
         use crate::nushell::NuOutput;
-        use fff_Finder_core::FileEntry;
+        use fffinder_core::FileEntry;
         let Some(nu) = crate::nushell::find_nu(None) else {
             return;
         };

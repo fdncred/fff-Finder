@@ -6,7 +6,7 @@ fn main() {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         // The icon is found through the include path, next to the .rc file.
         embed_resource::compile(
-            "assets/windows/fff-Finder.rc",
+            "assets/windows/fffinder.rc",
             embed_resource::ParamsIncludeDirs(["assets/windows"]),
         )
         .manifest_optional()

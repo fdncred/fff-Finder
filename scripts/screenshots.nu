@@ -46,7 +46,7 @@ def make-demo []: nothing -> path {
     "# Launch checklist\n\n- [x] Index the disk\n- [ ] Ship the socket\n" | save ($demo | path join 'Launch checklist.md')
     "Meeting notes\n\n* Search is instant\n* Nushell pipelines on selections\n" | save ($demo | path join 'Meeting notes.txt')
     "Project brief: a Finder-style search app in Rust.\n" | save ($demo | path join 'Project brief.txt')
-    "# Studio\n\nDemo folder for fff-Finder screenshots.\n" | save ($demo | path join README.md)
+    "# Studio\n\nDemo folder for fffinder screenshots.\n" | save ($demo | path join README.md)
     "# Roadmap\n\n1. Fuzzy search\n2. Nushell everywhere\n" | save ($demo | path join Roadmap.md)
     "Project Atlas\n" | save ($demo | path join Projects 'Project Atlas.txt')
     "Project Borealis\n" | save ($demo | path join Projects 'Project Borealis.md')

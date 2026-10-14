@@ -8,7 +8,7 @@ use crate::macos::IconLookup;
 use crate::model::Location;
 use crate::theme::palette;
 use crate::theme::ui;
-use fff_Finder_core::places::{Place, PlaceIcon};
+use fffinder_core::places::{Place, PlaceIcon};
 use gpui_kit::TestSupportExt as _;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenuItem};

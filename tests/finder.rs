@@ -4,8 +4,8 @@
 mod common;
 
 use common::{Fixture, Ui, cmd};
-use fff_Finder::model::Location;
-use fff_Finder_core::ViewMode;
+use fffinder::model::Location;
+use fffinder_core::ViewMode;
 use gpui_kit::TestAppContext;
 use gpui_kit::component::{ActiveTheme as _, WindowExt as _};
 

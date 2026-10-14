@@ -1,15 +1,16 @@
 //! Settings shared by the GUI and the Nushell plugin, stored as JSON in the
-//! platform config directory (`~/Library/Application Support/fff-Finder` on
-//! macOS, `~/.config/fff-Finder` on Linux, `%APPDATA%\fff-Finder` on Windows).
+//! platform config directory (`~/Library/Application Support/fffinder` on
+//! macOS, `~/.config/fffinder` on Linux, `%APPDATA%\fffinder` on Windows).
 
 use crate::kind::KindFilter;
 use crate::listing::SortOrder;
 use crate::terminals::{CUSTOM, Platform, TerminalSetting};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-pub const APP_NAME: &str = "fff-Finder";
+pub const APP_NAME: &str = "fffinder";
 /// Preview text size, in points, before the user changes it.
 pub const DEFAULT_PREVIEW_FONT_SIZE: f32 = 11.5;
 /// Text size of the Nushell panel and action menu, in points.
@@ -18,16 +19,26 @@ pub const DEFAULT_NU_FONT_SIZE: f32 = 12.0;
 pub const FONT_SIZE_RANGE: (f32, f32) = (8.0, 32.0);
 /// The smallest and largest scale of the whole window's text and controls.
 pub const UI_SCALE_RANGE: (f32, f32) = (0.8, 2.0);
-/// The name before 0.2, whose folders are moved on first start.
-const LEGACY_NAME: &str = "fffFinder";
+/// Earlier names of the app, newest first. Their folders are moved on first
+/// start.
+const LEGACY_NAMES: [&str; 2] = ["fff-Finder", "fffFinder"];
 
-/// `name`, or its pre-rename spelling (`FFFFINDER_…`).
+/// The environment variable `name` (`FFFINDER_…`), or the same variable under
+/// an earlier name (`FFF_FINDER_…`, then `FFFFINDER_…`). Empty counts as unset.
+pub fn env_var(name: &str) -> Option<OsString> {
+    let rest = name.strip_prefix("FFFINDER_").unwrap_or(name);
+    [
+        name.to_string(),
+        format!("FFF_FINDER_{rest}"),
+        format!("FFFFINDER_{rest}"),
+    ]
+    .into_iter()
+    .find_map(std::env::var_os)
+    .filter(|v| !v.is_empty())
+}
+
 fn env_dir(name: &str) -> Option<PathBuf> {
-    let legacy = name.replace("FFF_FINDER_", "FFFFINDER_");
-    std::env::var_os(name)
-        .or_else(|| std::env::var_os(legacy))
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
+    env_var(name).map(PathBuf::from)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
@@ -243,9 +254,9 @@ pub fn default_search_roots() -> Vec<PathBuf> {
     roots
 }
 
-/// Settings directory; `FFF_FINDER_CONFIG_DIR` overrides it (used by tests).
+/// Settings directory; `FFFINDER_CONFIG_DIR` overrides it (used by tests).
 pub fn config_dir() -> PathBuf {
-    env_dir("FFF_FINDER_CONFIG_DIR").unwrap_or_else(|| {
+    env_dir("FFFINDER_CONFIG_DIR").unwrap_or_else(|| {
         dirs::config_dir()
             .unwrap_or_else(std::env::temp_dir)
             .join(APP_NAME)
@@ -253,33 +264,44 @@ pub fn config_dir() -> PathBuf {
 }
 
 /// Where frecency databases, cached icons, and the control socket live;
-/// `FFF_FINDER_DATA_DIR` overrides it (used by tests).
+/// `FFFINDER_DATA_DIR` overrides it (used by tests).
 pub fn data_dir() -> PathBuf {
-    env_dir("FFF_FINDER_DATA_DIR").unwrap_or_else(|| {
+    env_dir("FFFINDER_DATA_DIR").unwrap_or_else(|| {
         dirs::data_local_dir()
             .unwrap_or_else(std::env::temp_dir)
             .join(APP_NAME)
     })
 }
 
-/// Move the folders the app used as "fffFinder" to the new name, once.
+/// Move the folders the app used under an earlier name to the new name, once.
 /// Overridden folders are left alone.
 pub fn migrate_legacy_dirs() {
     let pairs = [
-        ("FFF_FINDER_CONFIG_DIR", dirs::config_dir()),
-        ("FFF_FINDER_DATA_DIR", dirs::data_local_dir()),
+        ("FFFINDER_CONFIG_DIR", dirs::config_dir()),
+        ("FFFINDER_DATA_DIR", dirs::data_local_dir()),
     ];
     for (var, base) in pairs {
-        let Some(base) = base.filter(|_| env_dir(var).is_none()) else {
-            continue;
-        };
-        let (old, new) = (base.join(LEGACY_NAME), base.join(APP_NAME));
-        if old.is_dir()
-            && !new.exists()
-            && let Err(err) = std::fs::rename(&old, &new)
-        {
-            log::warn!("moving {} to {}: {err}", old.display(), new.display());
+        if let Some(base) = base.filter(|_| env_dir(var).is_none()) {
+            migrate_legacy_dir(&base);
         }
+    }
+}
+
+/// Rename the newest earlier-named folder in `base` to [`APP_NAME`], unless
+/// that folder already exists.
+fn migrate_legacy_dir(base: &Path) {
+    let new = base.join(APP_NAME);
+    let Some(old) = LEGACY_NAMES
+        .iter()
+        .map(|name| base.join(name))
+        .find(|old| old.is_dir())
+    else {
+        return;
+    };
+    if !new.exists()
+        && let Err(err) = std::fs::rename(&old, &new)
+    {
+        log::warn!("moving {} to {}: {err}", old.display(), new.display());
     }
 }
 
@@ -368,7 +390,7 @@ mod tests {
 
     #[test]
     fn round_trips() {
-        let path = std::env::temp_dir().join(format!("fff-Finder-cfg-{}.json", std::process::id()));
+        let path = std::env::temp_dir().join(format!("fffinder-cfg-{}.json", std::process::id()));
         let mut cfg = Config {
             show_hidden: true,
             view_mode: ViewMode::Gallery,
@@ -396,9 +418,29 @@ mod tests {
     }
 
     #[test]
+    fn moves_the_newest_legacy_folder_once() {
+        let base = std::env::temp_dir().join(format!("fffinder-legacy-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        for name in LEGACY_NAMES {
+            std::fs::create_dir_all(base.join(name)).unwrap();
+            std::fs::write(base.join(name).join("settings.json"), name).unwrap();
+        }
+        let settings = base.join(APP_NAME).join("settings.json");
+
+        migrate_legacy_dir(&base);
+        assert_eq!(std::fs::read_to_string(&settings).unwrap(), "fff-Finder");
+        assert!(!base.join("fff-Finder").exists());
+
+        // The new folder exists now, so the older one stays where it is.
+        migrate_legacy_dir(&base);
+        assert_eq!(std::fs::read_to_string(&settings).unwrap(), "fff-Finder");
+        assert!(base.join("fffFinder").is_dir());
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
     fn keeps_a_terminal_per_system_and_moves_the_old_command() {
-        let path =
-            std::env::temp_dir().join(format!("fff-Finder-cfg3-{}.json", std::process::id()));
+        let path = std::env::temp_dir().join(format!("fffinder-cfg3-{}.json", std::process::id()));
         std::fs::write(
             &path,
             r#"{"terminal": "foot -D {dir} {nu}", "terminals": {"plan9": {"app": "rio"}}}"#,
@@ -432,8 +474,7 @@ mod tests {
 
     #[test]
     fn tolerates_partial_files() {
-        let path =
-            std::env::temp_dir().join(format!("fff-Finder-cfg2-{}.json", std::process::id()));
+        let path = std::env::temp_dir().join(format!("fffinder-cfg2-{}.json", std::process::id()));
         std::fs::write(&path, r#"{"show_hidden": true}"#).unwrap();
         let cfg = Config::load_from(&path);
         assert!(cfg.show_hidden);

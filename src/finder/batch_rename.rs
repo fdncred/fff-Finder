@@ -5,7 +5,7 @@ use crate::theme::ui;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use fff_Finder_core::FileEntry;
+use fffinder_core::FileEntry;
 use gpui_kit::TestSupportExt as _;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::dialog::{DialogClose, DialogFooter};

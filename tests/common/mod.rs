@@ -4,11 +4,11 @@
 
 #![allow(dead_code)]
 
-use fff_Finder::finder::{AppState, Finder, PickerOptions};
-use fff_Finder::model::Location;
-use fff_Finder::system::{Recorder, SystemCall};
-use fff_Finder_core::terminals::Terminal;
-use fff_Finder_core::{Appearance, Engine, EngineOptions};
+use fffinder::finder::{AppState, Finder, PickerOptions};
+use fffinder::model::Location;
+use fffinder::system::{Recorder, SystemCall};
+use fffinder_core::terminals::Terminal;
+use fffinder_core::{Appearance, Engine, EngineOptions};
 use gpui_kit::base::test_support::{self, ElementSnapshot};
 use gpui_kit::component::WindowExt as _;
 use gpui_kit::test::TestWindowExt as _;
@@ -35,7 +35,7 @@ impl Fixture {
     /// Budget.csv  Projects/atlas/Project Atlas.txt  Roadmap.md  notes.txt  .secret
     /// ```
     pub fn new(name: &str) -> Fixture {
-        let dir = std::env::temp_dir().join(format!("fff-Finder-ui-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("fffinder-ui-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("Projects/atlas")).unwrap();
         std::fs::write(dir.join("Budget.csv"), "a,b\n1,2\n").unwrap();
@@ -63,12 +63,12 @@ fn isolate_settings() {
     static CONFIG: OnceLock<PathBuf> = OnceLock::new();
     CONFIG.get_or_init(|| {
         let config =
-            std::env::temp_dir().join(format!("fff-Finder-ui-config-{}", std::process::id()));
+            std::env::temp_dir().join(format!("fffinder-ui-config-{}", std::process::id()));
         std::fs::create_dir_all(&config).unwrap();
         // SAFETY: runs once, inside the OnceLock, before any test reads the variable.
         unsafe {
-            std::env::set_var("FFF_FINDER_CONFIG_DIR", &config);
-            std::env::set_var("FFF_FINDER_DATA_DIR", config.join("data"));
+            std::env::set_var("FFFINDER_CONFIG_DIR", &config);
+            std::env::set_var("FFFINDER_DATA_DIR", config.join("data"));
         }
         config
     });
@@ -154,7 +154,7 @@ impl<'a> Ui<'a> {
         let nu = options.nu;
         let terminals = Some(options.terminals);
         cx.update(|cx| {
-            fff_Finder::init(
+            fffinder::init(
                 cx,
                 AppState {
                     engine,
@@ -493,5 +493,5 @@ pub fn at(x: f32, y: f32) -> Point<Pixels> {
 }
 
 pub fn item_id(kind: &'static str, path: &Path) -> ElementId {
-    (kind, fff_Finder::finder::path_id(path)).into()
+    (kind, fffinder::finder::path_id(path)).into()
 }

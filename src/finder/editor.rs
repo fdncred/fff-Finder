@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use fff_Finder_core::terminals::Plan;
+use fffinder_core::terminals::Plan;
 use gpui_kit::component::WindowExt as _;
 use gpui_kit::component::notification::NotificationType;
 use gpui_kit::*;

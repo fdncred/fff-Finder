@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use fff_Finder_core::{FileEntry, SmartFolder};
+use fffinder_core::{FileEntry, SmartFolder};
 use gpui_kit::TestSupportExt as _;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::{Button, ButtonVariants as _};

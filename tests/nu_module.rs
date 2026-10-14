@@ -6,8 +6,8 @@ use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
 
-use fff_Finder::server::{self, Options, UiRequest};
-use fff_Finder_core::{Engine, EngineOptions};
+use fffinder::server::{self, Options, UiRequest};
+use fffinder_core::{Engine, EngineOptions};
 use serde_json::{Value, json};
 
 struct Fixture {
@@ -48,7 +48,7 @@ fn nu(nu: &Path, data_dir: &Path, cwd: &Path, script: &str) -> Result<Value, Str
     );
     let out = Command::new(nu)
         .args(["--no-config-file", "-c", &full])
-        .env("FFF_FINDER_DATA_DIR", data_dir)
+        .env("FFFINDER_DATA_DIR", data_dir)
         .env("NO_COLOR", "1")
         .current_dir(cwd)
         .output()
@@ -62,7 +62,7 @@ fn nu(nu: &Path, data_dir: &Path, cwd: &Path, script: &str) -> Result<Value, Str
 
 #[test]
 fn fff_nu_commands_talk_to_the_window() {
-    let Some(nu_bin) = fff_Finder::nushell::find_nu(None) else {
+    let Some(nu_bin) = fffinder::nushell::find_nu(None) else {
         eprintln!("nu not installed; skipping");
         return;
     };
@@ -184,7 +184,7 @@ fn fff_nu_commands_talk_to_the_window() {
     let none = fx.dir.join("nowhere");
     std::fs::create_dir_all(&none).unwrap();
     let err = nu(&nu_bin, &none, &tree, "fff find x").unwrap_err();
-    assert!(err.contains("no fff-Finder window is running"), "{err}");
+    assert!(err.contains("no fffinder window is running"), "{err}");
     let err = nu(&nu_bin, &data, &tree, "fff watch").unwrap_err();
     assert!(err.contains("--timeout or --max-events"), "{err}");
 }

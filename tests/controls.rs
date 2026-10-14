@@ -5,12 +5,12 @@
 mod common;
 
 use common::{Fixture, Open, Ui, at, cmd, item_id};
-use fff_Finder::actions::*;
-use fff_Finder::finder::{PickerOptions, SearchScope};
-use fff_Finder::model::Location;
-use fff_Finder::system::SystemCall;
-use fff_Finder_core::terminals::{Launch, Terminal};
-use fff_Finder_core::{Appearance, KindFilter, SortKey, ViewMode};
+use fffinder::actions::*;
+use fffinder::finder::{PickerOptions, SearchScope};
+use fffinder::model::Location;
+use fffinder::system::SystemCall;
+use fffinder_core::terminals::{Launch, Terminal};
+use fffinder_core::{Appearance, KindFilter, SortKey, ViewMode};
 use gpui_kit::Action as _;
 use gpui_kit::TestAppContext;
 use gpui_kit::component::ActiveTheme as _;
@@ -157,7 +157,7 @@ fn actions_menu_items(cx: &mut TestAppContext) {
     assert_eq!(ui.clipboard(), fx.path("Roadmap.md").display().to_string());
 
     ui.click("actions");
-    ui.click_menu_item(fff_Finder::finder::reveal_label());
+    ui.click_menu_item(fffinder::finder::reveal_label());
     assert_eq!(
         ui.system_calls(),
         [SystemCall::Reveal(fx.path("Roadmap.md"))]
@@ -389,7 +389,7 @@ fn path_bar_crumbs_navigate(cx: &mut TestAppContext) {
     let mut ui = Ui::open(cx, &fx.dir);
     let atlas = fx.path("Projects/atlas");
     ui.go_to(&atlas);
-    let crumbs = fff_Finder_core::places::breadcrumbs(&atlas).len();
+    let crumbs = fffinder_core::places::breadcrumbs(&atlas).len();
     ui.click(("crumb", crumbs - 2));
     assert_eq!(ui.folder(), Some(fx.path("Projects")));
 }
@@ -603,7 +603,7 @@ fn settings_dialog_controls(cx: &mut TestAppContext) {
     ui.click_without_settling("reset-roots");
     assert_eq!(
         ui.read(|f| f.config().search_roots.clone()),
-        fff_Finder_core::config::default_search_roots()
+        fffinder_core::config::default_search_roots()
     );
     ui.update(|f, _, cx| f.set_search_roots(vec![root.clone()], cx));
 
@@ -666,8 +666,8 @@ fn settings_text_sizes(cx: &mut TestAppContext) {
 
 #[gpui_kit::test]
 fn settings_search_engine(cx: &mut TestAppContext) {
-    use fff_Finder::finder::AppState;
-    use fff_Finder_core::SearchCase;
+    use fffinder::finder::AppState;
+    use fffinder_core::SearchCase;
     let fx = Fixture::new("search-engine");
     let mut ui = Ui::open(cx, &fx.dir);
     let engine = ui.window(|_, cx| cx.global::<AppState>().engine.clone());
@@ -949,7 +949,7 @@ fn quick_look_buttons_and_keys(cx: &mut TestAppContext) {
 
 #[gpui_kit::test]
 fn files_no_app_claims_open_in_an_editor(cx: &mut TestAppContext) {
-    use fff_Finder::nu_env::NuEnv;
+    use fffinder::nu_env::NuEnv;
     let fx = Fixture::new("no-app");
     std::fs::write(fx.path("blob.bin"), [0u8, 159, 146, 150, 0, 1]).unwrap();
     let mut ui = Ui::open(cx, &fx.dir);
@@ -1110,7 +1110,7 @@ fn quick_look_arrows_move_through_items(cx: &mut TestAppContext) {
 #[gpui_kit::test]
 fn nushell_panel_controls(cx: &mut TestAppContext) {
     let fx = Fixture::new("nu-panel");
-    let nu = fff_Finder::nushell::find_nu(None);
+    let nu = fffinder::nushell::find_nu(None);
     let have_nu = nu.is_some();
     let mut ui = Ui::open_with(
         cx,
@@ -1188,7 +1188,7 @@ fn picker_bar_enables_choose_with_a_selection(cx: &mut TestAppContext) {
 
 #[gpui_kit::test]
 fn nushell_filter_and_smart_folders(cx: &mut TestAppContext) {
-    let Some(nu) = fff_Finder::nushell::find_nu(None) else {
+    let Some(nu) = fffinder::nushell::find_nu(None) else {
         eprintln!("nu not installed; skipping");
         return;
     };
@@ -1262,8 +1262,8 @@ fn nushell_filter_and_smart_folders(cx: &mut TestAppContext) {
 
 #[gpui_kit::test]
 fn batch_rename_with_a_closure(cx: &mut TestAppContext) {
-    use fff_Finder::rename::Outcome;
-    let Some(nu) = fff_Finder::nushell::find_nu(None) else {
+    use fffinder::rename::Outcome;
+    let Some(nu) = fffinder::nushell::find_nu(None) else {
         eprintln!("nu not installed; skipping");
         return;
     };
@@ -1346,7 +1346,7 @@ fn batch_rename_with_a_closure(cx: &mut TestAppContext) {
 
 #[gpui_kit::test]
 fn nushell_actions_from_the_context_menu(cx: &mut TestAppContext) {
-    let Some(nu) = fff_Finder::nushell::find_nu(None) else {
+    let Some(nu) = fffinder::nushell::find_nu(None) else {
         eprintln!("nu not installed; skipping");
         return;
     };
@@ -1365,7 +1365,7 @@ fn nushell_actions_from_the_context_menu(cx: &mut TestAppContext) {
         labels.contains(&"Count Lines".to_string()),
         "starters load: {labels:?}"
     );
-    assert!(fff_Finder::user_actions::actions_path().exists());
+    assert!(fffinder::user_actions::actions_path().exists());
 
     ui.click("view-list");
     ui.right_click(item_id("row", &fx.path("notes.txt")));
@@ -1396,7 +1396,7 @@ fn nushell_actions_from_the_context_menu(cx: &mut TestAppContext) {
 
 #[gpui_kit::test]
 fn nushell_colors_and_editor(cx: &mut TestAppContext) {
-    use fff_Finder::nu_env::NuEnv;
+    use fffinder::nu_env::NuEnv;
     let fx = Fixture::new("nu-env");
     let term = Terminal {
         id: "term".into(),

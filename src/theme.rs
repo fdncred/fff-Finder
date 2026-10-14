@@ -1,6 +1,6 @@
 //! Theme installation and the few app colors the kit theme has no slot for.
 
-use fff_Finder_core::Appearance;
+use fffinder_core::Appearance;
 use gpui_kit::component::{ActiveTheme as _, Theme, ThemeMode, ThemeRegistry};
 use gpui_kit::{Anchor, App, Global, Hsla, Pixels, Rgba, Window, px, rgba};
 use std::cell::Cell;
@@ -111,8 +111,8 @@ pub fn install(cx: &mut App) {
         cx.set_global(SystemAccent(colors));
     }
     let registry = ThemeRegistry::global(cx);
-    let light = registry.themes().get("fff-Finder Light").cloned();
-    let dark = registry.themes().get("fff-Finder Dark").cloned();
+    let light = registry.themes().get("fffinder Light").cloned();
+    let dark = registry.themes().get("fffinder Dark").cloned();
     Theme::update(cx, |theme| {
         if let Some(light) = &light {
             theme.light_theme = light.clone();

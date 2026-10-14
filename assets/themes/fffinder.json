@@ -1,10 +1,10 @@
 {
   "$schema": "https://github.com/longbridge/gpui-component/raw/refs/heads/main/.theme-schema.json",
-  "name": "fff-Finder",
-  "author": "fff-Finder",
+  "name": "fffinder",
+  "author": "fffinder",
   "themes": [
     {
-      "name": "fff-Finder Light",
+      "name": "fffinder Light",
       "mode": "light",
       "font_size": 13,
       "radius": 6,
@@ -95,7 +95,7 @@
       }
     },
     {
-      "name": "fff-Finder Dark",
+      "name": "fffinder Dark",
       "mode": "dark",
       "font_size": 13,
       "radius": 6,

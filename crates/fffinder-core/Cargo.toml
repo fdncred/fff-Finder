@@ -1,6 +1,6 @@
 [package]
-name = "fff-Finder-core"
-description = "Search engine, file model, and settings behind the fff-Finder app"
+name = "fffinder-core"
+description = "Search engine, file model, and settings behind the fffinder app"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
