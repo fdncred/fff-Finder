@@ -19,22 +19,17 @@ pub const DEFAULT_NU_FONT_SIZE: f32 = 12.0;
 pub const FONT_SIZE_RANGE: (f32, f32) = (8.0, 32.0);
 /// The smallest and largest scale of the whole window's text and controls.
 pub const UI_SCALE_RANGE: (f32, f32) = (0.8, 2.0);
-/// Earlier names of the app, newest first. Their folders are moved on first
-/// start.
-const LEGACY_NAMES: [&str; 2] = ["fff-Finder", "fffFinder"];
+/// The app's earlier name. Its folders are moved on first start.
+const LEGACY_NAME: &str = "fff-Finder";
 
 /// The environment variable `name` (`FFFINDER_…`), or the same variable under
-/// an earlier name (`FFF_FINDER_…`, then `FFFFINDER_…`). Empty counts as unset.
+/// the earlier name (`FFF_FINDER_…`). Empty counts as unset.
 pub fn env_var(name: &str) -> Option<OsString> {
     let rest = name.strip_prefix("FFFINDER_").unwrap_or(name);
-    [
-        name.to_string(),
-        format!("FFF_FINDER_{rest}"),
-        format!("FFFFINDER_{rest}"),
-    ]
-    .into_iter()
-    .find_map(std::env::var_os)
-    .filter(|v| !v.is_empty())
+    [name.to_string(), format!("FFF_FINDER_{rest}")]
+        .into_iter()
+        .find_map(std::env::var_os)
+        .filter(|v| !v.is_empty())
 }
 
 fn env_dir(name: &str) -> Option<PathBuf> {
@@ -287,18 +282,13 @@ pub fn migrate_legacy_dirs() {
     }
 }
 
-/// Rename the newest earlier-named folder in `base` to [`APP_NAME`], unless
-/// that folder already exists.
+/// Rename the earlier-named folder in `base` to [`APP_NAME`], unless that
+/// folder already exists.
 fn migrate_legacy_dir(base: &Path) {
+    let old = base.join(LEGACY_NAME);
     let new = base.join(APP_NAME);
-    let Some(old) = LEGACY_NAMES
-        .iter()
-        .map(|name| base.join(name))
-        .find(|old| old.is_dir())
-    else {
-        return;
-    };
-    if !new.exists()
+    if old.is_dir()
+        && !new.exists()
         && let Err(err) = std::fs::rename(&old, &new)
     {
         log::warn!("moving {} to {}: {err}", old.display(), new.display());
@@ -418,23 +408,24 @@ mod tests {
     }
 
     #[test]
-    fn moves_the_newest_legacy_folder_once() {
+    fn moves_the_legacy_folder_once() {
         let base = std::env::temp_dir().join(format!("fffinder-legacy-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
-        for name in LEGACY_NAMES {
-            std::fs::create_dir_all(base.join(name)).unwrap();
-            std::fs::write(base.join(name).join("settings.json"), name).unwrap();
-        }
+        let old = base.join(LEGACY_NAME);
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join("settings.json"), "first").unwrap();
         let settings = base.join(APP_NAME).join("settings.json");
 
         migrate_legacy_dir(&base);
-        assert_eq!(std::fs::read_to_string(&settings).unwrap(), "fff-Finder");
-        assert!(!base.join("fff-Finder").exists());
+        assert_eq!(std::fs::read_to_string(&settings).unwrap(), "first");
+        assert!(!old.exists());
 
-        // The new folder exists now, so the older one stays where it is.
+        // The new folder exists now, so a later old folder stays where it is.
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join("settings.json"), "second").unwrap();
         migrate_legacy_dir(&base);
-        assert_eq!(std::fs::read_to_string(&settings).unwrap(), "fff-Finder");
-        assert!(base.join("fffFinder").is_dir());
+        assert_eq!(std::fs::read_to_string(&settings).unwrap(), "first");
+        assert!(old.is_dir());
         std::fs::remove_dir_all(base).unwrap();
     }
 

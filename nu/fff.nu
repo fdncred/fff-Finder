@@ -9,10 +9,10 @@
 
 const MODULE_DIR = path self | path dirname
 
-# $env.FFFINDER_<name>, or the same variable under an earlier name
-# (FFF_FINDER_, then FFFFINDER_), the way the app reads it.
+# $env.FFFINDER_<name>, or the same variable under the earlier name
+# (FFF_FINDER_), the way the app reads it.
 def app-env [name: string]: nothing -> any {
-    let value = ['FFFINDER_' 'FFF_FINDER_' 'FFFFINDER_']
+    let value = ['FFFINDER_' 'FFF_FINDER_']
         | each {|prefix| $env | get --optional $'($prefix)($name)' }
         | get 0?
     if ($value | is-empty) { null } else { $value }

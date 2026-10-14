@@ -1004,10 +1004,9 @@ holds:
 | `FFFINDER_SOFTWARE_RENDERING` | On Linux, `1` draws with Mesa's software renderers and skips the GPU drivers, like `--software-rendering`, and `0` never does, even with no GPU device. See [Without a GPU](#without-a-gpu-wsl2-and-virtual-machines). |
 | `TERMINAL` | On Linux, the terminal Automatic prefers. |
 
-The app was called fff-Finder, and before that fffFinder. The variables still
-work with those prefixes, `FFF_FINDER_` and `FFFFINDER_`. The first time
-fffinder starts, it moves its folders from the old names to `fffinder`, unless
-you set the folder variables above.
+The app used to be called fff-Finder. The variables still work with the old
+prefix, `FFF_FINDER_`. The first time fffinder starts, it moves its folders
+from `fff-Finder` to `fffinder`, unless you set the folder variables above.
 
 ## Appearance
 
